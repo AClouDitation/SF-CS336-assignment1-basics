@@ -1,9 +1,9 @@
 import logging
 import regex as re
 
-from pretoken import TokenCollection, TokenIdPair
 from collections import defaultdict
-from vocab import Vocab
+from cs336_basics.bpe_tokenization.token_collection import TokenCollection, TokenIdPair
+from cs336_basics.bpe_tokenization.vocab import Vocab
 
 
 ENCODING = "utf-8"

@@ -31,7 +31,6 @@ module-root = ""
 
 [tool.uv.workspace]
 members = [
-    "cs336_basics/bpe_tokenization/bpe_tokenization",
     "cs336_basics/bpe_tokenization",
 ]
 

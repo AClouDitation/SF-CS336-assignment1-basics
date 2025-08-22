@@ -5,8 +5,11 @@ class Vocab:
             token.encode() for token in special_tokens
         ]
 
-    def token(self, id: int) -> bytes | None:
+    def token(self, id: int) -> bytes:
         return self._token_by_id[id]  
+
+    def token_pair(self, pair:tuple[int, int]) -> tuple[bytes, bytes]:
+        return self.token(pair[0]), self.token(pair[1])
 
     def token_id(self, token: bytes) -> int:
         return self._token_by_id.index(token)

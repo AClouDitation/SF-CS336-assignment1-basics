@@ -74,25 +74,27 @@ class BytePairEncodingBuilder:
             if not self._pairs_cnt:
                 # logger.info("No more pairs to merge.")
                 break
-            target_pair = max(
-                self._pairs_cnt,
-                key=(
-                    lambda k: (
-                        self._pairs_cnt.get(k),
-                        (self._vocab.token(k[0]), self._vocab.token(k[1])),
-                    )
-                ),
-            )
 
-            token_1 = self._vocab.token(target_pair[0])
-            token_2 = self._vocab.token(target_pair[1])
-            # assert token_1 is not None and token_2 is not None
-            new_token = token_1 + token_2 # type: ignore
+            target_pair: TokenIdPair = (-1, -1)
+            max_cnt = -1
+            for pair, cnt in self._pairs_cnt.items():
+                if cnt < max_cnt:
+                    continue
+                if cnt > max_cnt or (
+                    cnt == max_cnt
+                    and self._vocab.token_pair(pair)
+                    > self._vocab.token_pair(target_pair)
+                ):
+                    target_pair = pair
+                    max_cnt = cnt
+
+            token_pair = self._vocab.token_pair(target_pair)
+            new_token = token_pair[0] + token_pair[1]
             new_token_id = self._vocab.add(new_token)
             # logger.info(
             #     "New token: %s, cnt: %s", new_token, self._pairs_cnt[target_pair]
             # )
-            self._merges.append((token_1, token_2))
+            self._merges.append(token_pair)
 
             if self.vocab_size >= self._target_vocab_size:
                 break

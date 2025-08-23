@@ -594,9 +594,9 @@ def run_train_bpe(
     corpus = file.read()
     file.close()
 
-    builder = bpe_builder.BytePairEncodingBuilder(
-        corpus=corpus, target_vocab_size=vocab_size, special_tokens=special_tokens
+    return bpe_builder.train_bpe(
+        corpus=corpus,
+        target_vocab_size=vocab_size,
+        special_tokens=special_tokens,
+        use_cpp=True,
     )
-    builder.train()
-
-    return builder.vocab, builder.merges

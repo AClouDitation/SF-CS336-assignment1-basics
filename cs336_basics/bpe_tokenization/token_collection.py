@@ -78,14 +78,9 @@ class TokenCollection:
                 diff[new_pair] += 1
                 self._pair_first_idx[new_pair][prev_idx] = None
 
-                # previous token is not updated
-                if not self.token_ids[prev_idx] == new_token_id:
-                    old_pair = (self.token_ids[prev_idx], t1)
-                    diff[old_pair] -= 1
-                    del self._pair_first_idx[old_pair][prev_idx]
-                else:  # previous token is updated
-                    diff[(new_token_id, t1)] -= 1
-                    del self._pair_first_idx[(new_token_id, t1)][prev_idx]
+                old_pair = (self.token_ids[prev_idx], t1)
+                diff[old_pair] -= 1
+                del self._pair_first_idx[old_pair][prev_idx]
 
             # look forward
             if (next_idx := self.next[merge_idx]) is not None:

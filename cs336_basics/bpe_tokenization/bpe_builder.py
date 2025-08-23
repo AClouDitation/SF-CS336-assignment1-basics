@@ -1,5 +1,8 @@
+import os
+import pathlib
 import logging
 import regex as re
+import cppyy
 
 from collections import defaultdict
 from cs336_basics.bpe_tokenization.token_collection import TokenCollection, TokenIdPair
@@ -8,8 +11,18 @@ from cs336_basics.bpe_tokenization.vocab import Vocab
 
 ENCODING = "utf-8"
 ENABLE_MULTI_PROCESSING = False
+
 logger = logging.getLogger(__name__)
 
+CC_PATH = (pathlib.Path(__file__).resolve().parent) / "cc"
+# cppyy.add_include_path(str(CC_PATH))
+# cppyy.cppdef(open(CC_PATH / "token_collection.cc").read())
+# cppyy.cppdef(open(CC_PATH / "bpe_builder.cc").read())
+cppyy.include(str(CC_PATH / "token_collection.h"))
+cppyy.load_library(str(CC_PATH / "libtoken_collection.so"))
+cppyy.include(str(CC_PATH / "bpe_builder.h"))
+cppyy.load_library(str(CC_PATH / "libbpe_builder.so"))
+from cppyy.gbl import bpe as cc # type: ignore
 
 class BytePairEncodingBuilder:
     PAT = re.compile(
@@ -111,43 +124,43 @@ class BytePairEncodingBuilder:
                     self._pairs_cnt[pair] += diff_cnt * multiplier
 
 
+def train_bpe(
+    corpus: str,
+    target_vocab_size: int,
+    special_tokens: list[str],
+    use_cpp: bool = False,
+) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
+    if use_cpp:
+        regex_pattern = "|".join(map(re.escape, special_tokens))
+        pretoken_cnt: dict[str, int] = defaultdict(int)
+        for chunk in re.split(regex_pattern, corpus):
+            for pretoken in re.finditer(BytePairEncodingBuilder.PAT, chunk):
+                pretoken_cnt[pretoken.group()] += 1
+
+        builder = cc.BPEBuilder(
+            special_tokens=special_tokens,
+            target_vocab_size=target_vocab_size
+        )
+        for pretoken, count in pretoken_cnt.items():
+            builder.AddPretoken(pretoken, count)
+
+        builder.Train()
+        vocab = builder.GetVocab()
+        merges = builder.GetMerges()
+
+        return {i: bytes(t) for i, t in enumerate(vocab)}, [
+            (merge.first, merge.second) for merge in merges
+        ]  # type:ignore
+
+    builder = BytePairEncodingBuilder(corpus, target_vocab_size, special_tokens)
+    builder.train()
+
+    return builder.vocab, builder.merges
+
+
 if __name__ == "__main__":
     # logging.basicConfig(level=logging.CRITICAL)
     logging.basicConfig(level=logging.INFO)
-
-    # vocab = Vocab(special_tokens=[])
-    # def print_tokens(token_ids: list[int]):
-    #     print('tokens:', [vocab.token(tid) for tid in token_ids])
-
-    # def print_diff(diff: dict[TokenIdPair, int]):
-    #     token_diff = {
-    #         (vocab.token(pair[0]), vocab.token(pair[1])): count
-    #         for pair, count in diff.items()
-    #     }
-    #     print('diff:', token_diff)
-
-    # p = TokenCollection(b" the")
-    # print_tokens(p.token_ids)
-    # print()
-
-    # for pair in [(b' ', b't'), (b't', b'h'), (b'h', b'e')]:
-    #     print("merging ", pair)
-    #     new_token_id = vocab.add(pair[0] + pair[1])
-    #     diff = p.merge_bytes_pair(
-    #         (vocab.token_id(pair[0]), vocab.token_id(pair[1])), new_token_id
-    #     )
-    #     print_diff(diff)
-    #     print_tokens(p.token_ids)
-    #     print("next: ", p.next)
-    #     print("prev: ", p.prev)
-    #     print(
-    #         "pf: ",
-    #         {
-    #             (vocab.token(k[0]), vocab.token(k[1])): [idx for idx in v]
-    #             for k, v in p._pair_first_idx.items()
-    #         },
-    #     )
-    #     print()
 
     import os
     import time
@@ -161,10 +174,15 @@ if __name__ == "__main__":
     )
     corpus = f.read()
     f.close()
-    builder = BytePairEncodingBuilder(
-        corpus, target_vocab_size=500, special_tokens=["<|endoftext|>"]
-    )
+
+    train_bpe(corpus, 500, ["<|endoftext|>"])
+
     start = time.time()
-    builder.train()
+    train_bpe(corpus, 500, ["<|endoftext|>"], use_cpp=True)
     dur = time.time() - start
-    print(f"Duration: {dur:.2f}s")
+    print(f"CPP Duration: {dur:.2f}s")
+
+    start = time.time()
+    train_bpe(corpus, 500, ["<|endoftext|>"])
+    dur = time.time() - start
+    print(f"Py Duration: {dur:.2f}s")

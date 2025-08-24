@@ -10,7 +10,6 @@ from cs336_basics.bpe_tokenization.vocab import Vocab
 
 
 ENCODING = "utf-8"
-ENABLE_MULTI_PROCESSING = False
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +22,7 @@ cppyy.load_library(str(CC_PATH / "libtoken_collection.so"))
 cppyy.include(str(CC_PATH / "bpe_builder.h"))
 cppyy.load_library(str(CC_PATH / "libbpe_builder.so"))
 from cppyy.gbl import bpe as cc # type: ignore
+cc.BPEBuilder.Train.__release_gil__ = True
 
 class BytePairEncodingBuilder:
     PAT = re.compile(
@@ -174,8 +174,6 @@ if __name__ == "__main__":
     )
     corpus = f.read()
     f.close()
-
-    train_bpe(corpus, 500, ["<|endoftext|>"])
 
     start = time.time()
     train_bpe(corpus, 500, ["<|endoftext|>"], use_cpp=True)

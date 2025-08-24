@@ -1,4 +1,5 @@
 import os
+import subprocess
 import pathlib
 import logging
 import regex as re
@@ -10,17 +11,34 @@ from cs336_basics.bpe_tokenization.vocab import Vocab
 
 
 ENCODING = "utf-8"
+RECOMPILE = False
 
 logger = logging.getLogger(__name__)
 
 CC_PATH = (pathlib.Path(__file__).resolve().parent) / "cc"
-# cppyy.add_include_path(str(CC_PATH))
-# cppyy.cppdef(open(CC_PATH / "token_collection.cc").read())
-# cppyy.cppdef(open(CC_PATH / "bpe_builder.cc").read())
+if RECOMPILE:
+    for cc_file in CC_PATH.glob("*.cc"):
+        print(f"Compiling {cc_file}...")
+        subprocess.run(
+            [
+                "clang++",
+                "-std=c++20",
+                "-Wall",
+                "-fPIC",
+                "-shared",
+                "-O2",
+                str(CC_PATH / cc_file),
+                "-o",
+                CC_PATH / f"lib{cc_file.stem}.so",
+            ]
+        )
+        print("Done!")
+
 cppyy.include(str(CC_PATH / "token_collection.h"))
 cppyy.load_library(str(CC_PATH / "libtoken_collection.so"))
 cppyy.include(str(CC_PATH / "bpe_builder.h"))
 cppyy.load_library(str(CC_PATH / "libbpe_builder.so"))
+
 from cppyy.gbl import bpe as cc # type: ignore
 cc.BPEBuilder.Train.__release_gil__ = True
 
@@ -139,7 +157,7 @@ def train_bpe(
 
         builder = cc.BPEBuilder(
             special_tokens=special_tokens,
-            target_vocab_size=target_vocab_size
+            target_vocab_size=target_vocab_size,
         )
         for pretoken, count in pretoken_cnt.items():
             builder.AddPretoken(pretoken, count)

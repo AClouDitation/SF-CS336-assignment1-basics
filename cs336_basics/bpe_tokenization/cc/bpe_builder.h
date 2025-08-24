@@ -14,6 +14,8 @@ namespace bpe {
 
 class BPEBuilder {
 public:
+  BPEBuilder(const BPEBuilder&) = delete;
+  BPEBuilder& operator=(const BPEBuilder&) = delete;
   BPEBuilder(const std::vector<std::string> &special_tokens,
              size_t target_vocab_size,
              size_t max_total_shards = std::thread::hardware_concurrency(),

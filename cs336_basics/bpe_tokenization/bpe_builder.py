@@ -1,9 +1,6 @@
 import os
-import subprocess
-import pathlib
 import logging
 import regex as re
-import cppyy
 
 from collections import defaultdict
 from cs336_basics.bpe_tokenization.token_collection import TokenCollection, TokenIdPair
@@ -12,38 +9,8 @@ from cs336_basics.bpe_tokenization.pretokenization import pretokenize
 
 
 ENCODING = "utf-8"
-RECOMPILE = False
 
 logger = logging.getLogger(__name__)
-
-CC_PATH = (pathlib.Path(__file__).resolve().parent) / "cc"
-if RECOMPILE:
-    for cc_file in CC_PATH.glob("*.cc"):
-        print(f"Compiling {cc_file}...")
-        subprocess.run(
-            [
-                "clang++",
-                "-std=c++20",
-                "-Wall",
-                "-fPIC",
-                "-shared",
-                "-O2",
-                str(CC_PATH / cc_file),
-                "-o",
-                CC_PATH / f"lib{cc_file.stem}.so",
-            ]
-        )
-        print("Done!")
-
-cppyy.include(str(CC_PATH / "token_collection.h"))
-cppyy.load_library(str(CC_PATH / "libtoken_collection.so"))
-cppyy.include(str(CC_PATH / "bpe_builder.h"))
-cppyy.load_library(str(CC_PATH / "libbpe_builder.so"))
-
-from cppyy.gbl import bpe as cc  # type: ignore
-
-cc.BPEBuilder.Train.__release_gil__ = True
-
 
 class BytePairEncodingBuilder:
     PAT = re.compile(
@@ -140,53 +107,3 @@ class BytePairEncodingBuilder:
                     irrelevant_pairs.add(pair)
             for pair in irrelevant_pairs:
                 del self._pairs_cnt[pair]
-
-
-def train_bpe(
-    file_path: str | os.PathLike,
-    target_vocab_size: int,
-    special_tokens: list[str],
-    use_cpp: bool = False,
-) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
-    if use_cpp:
-        builder = cc.BPEBuilder(
-            special_tokens=special_tokens,
-            target_vocab_size=target_vocab_size,
-        )
-
-        for pretoken, count in pretokenize(
-            file_path, [t.encode(ENCODING) for t in special_tokens]
-        ).items():
-            builder.AddPretoken(pretoken, count)
-
-        builder.Train()
-        vocab = builder.GetVocab()
-        merges = builder.GetMerges()
-
-        return {i: bytes(t) for i, t in enumerate(vocab)}, [
-            (merge.first, merge.second) for merge in merges
-        ]  # type:ignore
-
-    builder = BytePairEncodingBuilder(file_path, target_vocab_size, special_tokens)
-    builder.train()
-
-    return builder.vocab, builder.merges
-
-
-if __name__ == "__main__":
-    # logging.basicConfig(level=logging.CRITICAL)
-    logging.basicConfig(level=logging.INFO)
-
-    import time
-
-    fn = "/home/yq/learning/SF_CS_336/assignment1-basics/tests/fixtures/corpus.en"
-
-    start = time.time()
-    train_bpe(fn, 500, ["<|endoftext|>"], use_cpp=True)
-    dur = time.time() - start
-    print(f"CPP Duration: {dur:.2f}s")
-
-    start = time.time()
-    train_bpe(fn, 500, ["<|endoftext|>"])
-    dur = time.time() - start
-    print(f"Py Duration: {dur:.2f}s")

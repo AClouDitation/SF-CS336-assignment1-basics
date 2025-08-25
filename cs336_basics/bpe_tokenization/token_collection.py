@@ -5,7 +5,23 @@ from collections import defaultdict, OrderedDict
 
 TokenIdPair: TypeAlias = tuple[int, int]
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
+# logging.basicConfig(level=logging.DEBUG)
+
+# def info(type, value, tb):
+#     if hasattr(sys, 'ps1') or not sys.stderr.isatty() or type != AssertionError:
+#         # we are in interactive mode or we don't have a tty-like
+#         # device, so we call the default hook
+#         sys.__excepthook__(type, value, tb)
+#     else:
+#         import traceback, pdb
+#         # we are NOT in interactive mode, print the exception...
+#         traceback.print_exception(type, value, tb)
+#         print
+#         # ...then start the debugger in post-mortem mode.
+#         pdb.pm()
+
+# sys.excepthook = info
 
 class TokenCollection:
     def __init__(self, value: bytes):
@@ -36,27 +52,24 @@ class TokenCollection:
         self.next[first_idx] = self.next[second_idx]
         if new_next:
             self.prev[new_next] = first_idx
-        
-        # Unnecessary cleanup
-        # self.next[second_idx] = None
-        # self.prev[second_idx] = None
-        # self.token_ids[second_idx] = -1  # mark as removed
+
+        self.next[second_idx] = None
+        self.prev[second_idx] = None
+        self.token_ids[second_idx] = -1  # mark as removed
 
     def merge_bytes_pair(
         self, target_pair: TokenIdPair, new_token_id: int
     ) -> dict[TokenIdPair, int]:
-        logger.debug("Merging pair %s into new token id %d", target_pair, new_token_id)
         if (
             target_pair not in self._pair_first_idx
             or len(self._pair_first_idx[target_pair]) == 0
         ):
-            # logger.debug("Pair %s not found", target_pair)
             return {}
 
-        last_match_idx = -2
+        last_match_idx = None
         idx_to_merge: list[int] = []
         for idx in self._pair_first_idx[target_pair]:
-            if idx - last_match_idx < 2:
+            if self.prev[idx] is not None and self.prev[idx] == last_match_idx:
                 continue
             last_match_idx = idx
             idx_to_merge.append(idx)

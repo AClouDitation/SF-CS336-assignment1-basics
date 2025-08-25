@@ -590,13 +590,4 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    file = open(input_path, "r", encoding=bpe_builder.ENCODING)
-    corpus = file.read()
-    file.close()
-
-    return bpe_builder.train_bpe(
-        corpus=corpus,
-        target_vocab_size=vocab_size,
-        special_tokens=special_tokens,
-        use_cpp=True,
-    )
+    return bpe_builder.train_bpe(input_path, vocab_size, special_tokens, use_cpp=True)

@@ -9,6 +9,7 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
+#include <queue>
 
 namespace bpe {
 
@@ -29,9 +30,15 @@ public:
   std::vector<std::string> GetVocab() const;
 
 private:
-  std::vector<std::pair<TokenCollection::PairFreqMap, int32_t>>
-  ProcessShard(size_t shard, TokenCollection::TokenIdPair target_pair,
-               const std::unordered_map<std::string, size_t> &pretoken_shards);
+  TokenCollection::TokenIdPair FindBestPair();
+
+  using FreqPair = std::pair<int32_t, TokenCollection::TokenIdPair>;
+  bool FreqPairComparator(const FreqPair &lhs, const FreqPair &rhs) const;
+
+  void ProcessShard(
+      size_t shard, TokenCollection::TokenIdPair target_pair,
+      const std::unordered_map<std::string, size_t> &pretoken_shards,
+      std::vector<std::pair<TokenCollection::PairFreqMap, int32_t>> *out);
 
   const size_t target_vocab_size;
   std::vector<std::string> vocab;
@@ -43,6 +50,10 @@ private:
   std::hash<std::string> hasher;
 
   TokenCollection::PairFreqMap pairs_cnt;
+
+  std::priority_queue<FreqPair, std::vector<FreqPair>,
+                      std::function<bool(const FreqPair &, const FreqPair &)>>
+      pairs_cnt_queue;
   std::vector<std::pair<std::string, std::string>> merges;
 };
 

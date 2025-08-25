@@ -41,12 +41,17 @@ TokenCollection::MergePair(const TokenIdPair& target_pair, TokenId new_token_id)
 
   PairFreqMap diff;
   const auto& [t1, t2] = target_pair;
-  Index last_merge_idx = -2;
-  for(Index merge_idx: it->second) {
-    if (merge_idx - last_merge_idx < 2) {
+  Index last_merge_idx = -1;
+  std::vector<Index> idx_to_merge;
+  for (const Index idx : it->second) {
+    if (prev[idx] >= 0 && prev[idx] == last_merge_idx) {
       continue;
     }
-    last_merge_idx = merge_idx;
+    last_merge_idx = idx;
+    idx_to_merge.push_back(idx);
+  }
+
+  for(Index merge_idx: idx_to_merge) {
     Index t2_idx = next[merge_idx];
     assert(t2_idx != -1);
 
@@ -88,9 +93,9 @@ void TokenCollection::ReplacePair(Index first_idx, TokenId new_token_id) {
     prev[new_next] = first_idx;
   }
 
-  // next[second_idx] = -1;
-  // prev[second_idx] = -1;
-  // token_ids[second_idx] = -1;
+  next[second_idx] = -1;
+  prev[second_idx] = -1;
+  token_ids[second_idx] = -1;
 }
 
 } // namespace bpe

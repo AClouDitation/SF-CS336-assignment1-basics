@@ -8,6 +8,7 @@ import cppyy
 from collections import defaultdict
 from cs336_basics.bpe_tokenization.token_collection import TokenCollection, TokenIdPair
 from cs336_basics.bpe_tokenization.vocab import Vocab
+from cs336_basics.bpe_tokenization.pretokenization import pretokenize
 
 
 ENCODING = "utf-8"
@@ -39,22 +40,19 @@ cppyy.load_library(str(CC_PATH / "libtoken_collection.so"))
 cppyy.include(str(CC_PATH / "bpe_builder.h"))
 cppyy.load_library(str(CC_PATH / "libbpe_builder.so"))
 
-from cppyy.gbl import bpe as cc # type: ignore
+from cppyy.gbl import bpe as cc  # type: ignore
+
 cc.BPEBuilder.Train.__release_gil__ = True
+
 
 class BytePairEncodingBuilder:
     PAT = re.compile(
-        r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+        rb"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
     )
-
-    def _split_corpus(self, corpus: str, separators: list[str]) -> list[str]:
-        """Splits the corpus into tokens based on the provided separators."""
-        regex_pattern = "|".join(map(re.escape, separators))
-        return re.split(regex_pattern, corpus)
 
     def __init__(
         self,
-        corpus: str,
+        file_path: str | os.PathLike,
         target_vocab_size: int,
         special_tokens: list[str],
         max_merges=-1,
@@ -63,14 +61,11 @@ class BytePairEncodingBuilder:
         self._target_vocab_size = target_vocab_size
         self._max_merges = max_merges
 
-        self._pretoken_cnt: dict[str, int] = defaultdict(int)
-        for chunk in self._split_corpus(corpus, special_tokens):
-            for pretoken in re.finditer(BytePairEncodingBuilder.PAT, chunk):
-                self._pretoken_cnt[pretoken.group()] += 1
+        self._pretoken_cnt: dict[bytes, int] = pretokenize(
+            file_path, [t.encode(ENCODING) for t in special_tokens]
+        )
 
-        self._token_collections = {
-            k: TokenCollection(bytes(k, ENCODING)) for k in self._pretoken_cnt
-        }
+        self._token_collections = {k: TokenCollection(k) for k in self._pretoken_cnt}
 
         self._merges = []
         self._pairs_cnt: dict[TokenIdPair, int] = defaultdict(int)
@@ -136,30 +131,32 @@ class BytePairEncodingBuilder:
                 if (diff := coll.merge_bytes_pair(target_pair, new_token_id))
             ]
 
-            del self._pairs_cnt[target_pair]
+            irrelevant_pairs: set[TokenIdPair] = {target_pair}
             for diff, multiplier in diffs:
                 for pair, diff_cnt in diff.items():
                     self._pairs_cnt[pair] += diff_cnt * multiplier
+            for pair, cnt in self._pairs_cnt.items():
+                if cnt <= 0:
+                    irrelevant_pairs.add(pair)
+            for pair in irrelevant_pairs:
+                del self._pairs_cnt[pair]
 
 
 def train_bpe(
-    corpus: str,
+    file_path: str | os.PathLike,
     target_vocab_size: int,
     special_tokens: list[str],
     use_cpp: bool = False,
 ) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
     if use_cpp:
-        regex_pattern = "|".join(map(re.escape, special_tokens))
-        pretoken_cnt: dict[str, int] = defaultdict(int)
-        for chunk in re.split(regex_pattern, corpus):
-            for pretoken in re.finditer(BytePairEncodingBuilder.PAT, chunk):
-                pretoken_cnt[pretoken.group()] += 1
-
         builder = cc.BPEBuilder(
             special_tokens=special_tokens,
             target_vocab_size=target_vocab_size,
         )
-        for pretoken, count in pretoken_cnt.items():
+
+        for pretoken, count in pretokenize(
+            file_path, [t.encode(ENCODING) for t in special_tokens]
+        ).items():
             builder.AddPretoken(pretoken, count)
 
         builder.Train()
@@ -170,7 +167,7 @@ def train_bpe(
             (merge.first, merge.second) for merge in merges
         ]  # type:ignore
 
-    builder = BytePairEncodingBuilder(corpus, target_vocab_size, special_tokens)
+    builder = BytePairEncodingBuilder(file_path, target_vocab_size, special_tokens)
     builder.train()
 
     return builder.vocab, builder.merges
@@ -180,25 +177,16 @@ if __name__ == "__main__":
     # logging.basicConfig(level=logging.CRITICAL)
     logging.basicConfig(level=logging.INFO)
 
-    import os
     import time
 
-    f = open(
-        os.path.join(
-            "/home/yq/learning/SF_CS_336/assignment1-basics/tests/fixtures", "corpus.en"
-        ),
-        "r",
-        encoding=ENCODING,
-    )
-    corpus = f.read()
-    f.close()
+    fn = "/home/yq/learning/SF_CS_336/assignment1-basics/tests/fixtures/corpus.en"
 
     start = time.time()
-    train_bpe(corpus, 500, ["<|endoftext|>"], use_cpp=True)
+    train_bpe(fn, 500, ["<|endoftext|>"], use_cpp=True)
     dur = time.time() - start
     print(f"CPP Duration: {dur:.2f}s")
 
     start = time.time()
-    train_bpe(corpus, 500, ["<|endoftext|>"])
+    train_bpe(fn, 500, ["<|endoftext|>"])
     dur = time.time() - start
     print(f"Py Duration: {dur:.2f}s")

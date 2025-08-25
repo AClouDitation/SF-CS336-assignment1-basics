@@ -70,7 +70,11 @@ if __name__ == "__main__":
 
     start = time.time()
     vocab, merges = train_bpe(
-        args.file, args.vocab_size, args.special_tokens, use_cpp=args.use_cpp
+        args.file,
+        args.vocab_size,
+        args.special_tokens,
+        use_cpp=args.use_cpp,
+        recompile=args.recompile,
     )
     dur = time.time() - start
     print(f"Training finished. Took: {dur:.2f} seconds.")

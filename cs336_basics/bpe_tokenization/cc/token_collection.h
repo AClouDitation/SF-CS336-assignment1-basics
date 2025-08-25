@@ -29,7 +29,6 @@ public:
 private:
   void ReplacePair(Index first_idx, TokenId new_token_id);
 
-  std::string value;
   std::vector<TokenId> token_ids;
   std::vector<Index> prev;
   std::vector<Index> next;

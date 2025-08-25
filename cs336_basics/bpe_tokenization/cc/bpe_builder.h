@@ -3,7 +3,6 @@
 
 #include "token_collection.h"
 
-#include <mutex>
 #include <queue>
 #include <string>
 #include <string_view>
@@ -33,23 +32,21 @@ public:
 private:
   TokenCollection::TokenIdPair FindBestPair();
 
-  using FreqPair = std::pair<int32_t, TokenCollection::TokenIdPair>;
+  using FreqPair = std::pair<TokenCollection::TokenIdPair, int32_t>;
   bool FreqPairComparator(const FreqPair &lhs, const FreqPair &rhs) const;
 
   void ProcessShard(
       TokenCollection::TokenIdPair target_pair,
-      std::unordered_map<std::string, TokenCollection> &token_collections,
+      std::vector<std::pair<TokenCollection, int32_t>> &token_collections,
       std::vector<std::pair<TokenCollection::PairFreqMap, int32_t>> *out);
 
   const size_t target_vocab_size;
   std::vector<std::string> vocab;
   std::unordered_map<std::string, int32_t> pretoken_freq;
-  std::vector<std::unordered_map<std::string, TokenCollection>>
-      token_collections_shards;
+  std::vector<std::vector<std::pair<TokenCollection, int32_t>>> token_collections_shards;
 
   size_t max_total_shards;
   size_t target_pretoken_per_shard;
-  std::hash<std::string> hasher;
 
   TokenCollection::PairFreqMap pairs_cnt;
 

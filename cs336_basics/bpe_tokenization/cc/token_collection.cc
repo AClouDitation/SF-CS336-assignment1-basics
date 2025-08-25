@@ -3,7 +3,7 @@
 
 namespace bpe {
 
-TokenCollection::TokenCollection(std::string_view text) : value(text) {
+TokenCollection::TokenCollection(std::string_view text) {
   size_t text_length = text.length();
   assert(text_length <= std::numeric_limits<Index>::max());
 
@@ -93,9 +93,10 @@ void TokenCollection::ReplacePair(Index first_idx, TokenId new_token_id) {
     prev[new_next] = first_idx;
   }
 
-  next[second_idx] = -1;
-  prev[second_idx] = -1;
-  token_ids[second_idx] = -1;
+  // Unnecessary as these will never be accessed again.
+  // next[second_idx] = -1;
+  // prev[second_idx] = -1;
+  // token_ids[second_idx] = -1;
 }
 
 } // namespace bpe

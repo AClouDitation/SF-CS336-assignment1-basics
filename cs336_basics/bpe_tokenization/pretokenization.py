@@ -1,7 +1,7 @@
 import os
 import regex as re
 
-from typing import BinaryIO, Iterator
+from typing import BinaryIO
 from concurrent.futures import ProcessPoolExecutor
 from collections import defaultdict
 
@@ -94,18 +94,24 @@ def pretokenize(
     with open(file_path, "rb") as f:
         boundaries = find_chunk_boundaries(f, num_processes, regex_pattern)
 
-    with ProcessPoolExecutor(max_workers=num_processes) as executor:
-        futures = []
-        for start, end in zip(boundaries[:-1], boundaries[1:]):
-            futures.append(
-                executor.submit(
-                    read_and_count_pretoken, file_path, start, end, regex_pattern
+    print("Loading %d chunks" % (len(boundaries) - 1))
+    if len(boundaries) > 2:
+        with ProcessPoolExecutor(max_workers=num_processes) as executor:
+            futures = []
+            for start, end in zip(boundaries[:-1], boundaries[1:]):
+                futures.append(
+                    executor.submit(
+                        read_and_count_pretoken, file_path, start, end, regex_pattern
+                    )
                 )
-            )
 
-    pretoken_cnt: dict[bytes, int] = defaultdict(int)
-    for future in futures:
-        for k, v in future.result().items():
-            pretoken_cnt[k] += v
+        pretoken_cnt: dict[bytes, int] = defaultdict(int)
+        for future in futures:
+            for k, v in future.result().items():
+                pretoken_cnt[k] += v
+    else:
+        pretoken_cnt = read_and_count_pretoken(
+            file_path, boundaries[0], boundaries[1], regex_pattern
+        )
 
     return pretoken_cnt

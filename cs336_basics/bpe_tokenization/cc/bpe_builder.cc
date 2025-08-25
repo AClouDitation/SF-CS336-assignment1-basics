@@ -2,8 +2,9 @@
 
 #include <boost/asio/post.hpp>
 #include <boost/asio/thread_pool.hpp>
-#include <functional>
+#include <boost/progress.hpp>
 #include <cmath>
+#include <functional>
 #include <iostream>
 #include <mutex>
 #include <string_view>
@@ -59,6 +60,7 @@ void BPEBuilder::Train() {
     pairs_cnt_queue.push(std::make_pair(cnt, pair));
   }
 
+  boost::progress_display progress(target_vocab_size - vocab.size());
   while (true) {
     if (pairs_cnt.empty()) {
       break;
@@ -121,7 +123,9 @@ void BPEBuilder::Train() {
       pairs_cnt.erase(pair);
     }
     pairs_cnt.erase(target_pair);
+    ++progress;
   }
+  std::cout << std::endl;
 }
 
 std::vector<std::pair<std::string, std::string>> BPEBuilder::GetMerges() const {

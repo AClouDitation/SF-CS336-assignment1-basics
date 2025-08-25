@@ -20,7 +20,7 @@ public:
   BPEBuilder(const std::vector<std::string> &special_tokens,
              size_t target_vocab_size,
              size_t max_total_shards = std::thread::hardware_concurrency(),
-             size_t target_pretoken_per_shard = 10000);
+             size_t target_pretoken_per_shard = 100000);
   ~BPEBuilder() = default;
 
   void AddPretoken(std::string_view pretoken, int32_t count);

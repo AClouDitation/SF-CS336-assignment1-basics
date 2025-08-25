@@ -4,12 +4,13 @@
 #include "token_collection.h"
 
 #include <mutex>
+#include <queue>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
-#include <queue>
 
 namespace bpe {
 
@@ -20,7 +21,7 @@ public:
   BPEBuilder(const std::vector<std::string> &special_tokens,
              size_t target_vocab_size,
              size_t max_total_shards = std::thread::hardware_concurrency(),
-             size_t target_pretoken_per_shard = 100000);
+             size_t target_pretoken_per_shard = 10000);
   ~BPEBuilder() = default;
 
   void AddPretoken(std::string_view pretoken, int32_t count);
@@ -36,14 +37,15 @@ private:
   bool FreqPairComparator(const FreqPair &lhs, const FreqPair &rhs) const;
 
   void ProcessShard(
-      size_t shard, TokenCollection::TokenIdPair target_pair,
-      const std::unordered_map<std::string, size_t> &pretoken_shards,
+      TokenCollection::TokenIdPair target_pair,
+      std::unordered_map<std::string, TokenCollection> &token_collections,
       std::vector<std::pair<TokenCollection::PairFreqMap, int32_t>> *out);
 
   const size_t target_vocab_size;
   std::vector<std::string> vocab;
   std::unordered_map<std::string, int32_t> pretoken_freq;
-  std::unordered_map<std::string, TokenCollection> token_collections;
+  std::vector<std::unordered_map<std::string, TokenCollection>>
+      token_collections_shards;
 
   size_t max_total_shards;
   size_t target_pretoken_per_shard;

@@ -15,7 +15,9 @@ namespace bpe {
 BPEBuilder::BPEBuilder(const std::vector<std::string> &special_tokens,
                        const size_t target_vocab_size, size_t max_total_shards,
                        size_t target_pretoken_per_shard)
-    : target_vocab_size(target_vocab_size), max_total_shards(max_total_shards),
+    : target_vocab_size(target_vocab_size),
+      token_collections_shards(max_total_shards),
+      max_total_shards(max_total_shards),
       target_pretoken_per_shard(target_pretoken_per_shard) {
   std::function<bool(const FreqPair &, const FreqPair &)> comparator =
       std::bind_front(&BPEBuilder::FreqPairComparator, this);
@@ -32,7 +34,6 @@ BPEBuilder::BPEBuilder(const std::vector<std::string> &special_tokens,
 
 void BPEBuilder::AddPretoken(std::string_view pretoken, const int32_t count) {
   pretoken_freq.emplace(pretoken, count);
-  token_collections.emplace(pretoken, TokenCollection(pretoken));
 }
 
 void BPEBuilder::Train() {
@@ -43,17 +44,23 @@ void BPEBuilder::Train() {
   std::cerr << std::endl
             << "Sharding " << pretoken_freq.size() << " pretokens into "
             << total_shards << " shards." << std::endl;
-
-  std::unordered_map<std::string, size_t> pretoken_shards;
   if (total_shards > 1) {
-    for (const auto &[pretoken, freq] : pretoken_freq) {
-      pretoken_shards[pretoken] = hasher(pretoken) % total_shards;
+    for (const auto &[pretoken, _] : pretoken_freq) {
+      token_collections_shards[hasher(pretoken) % total_shards].emplace(
+          pretoken, TokenCollection(pretoken));
+    }
+  } else {
+    for (const auto &[pretoken, _] : pretoken_freq) {
+      token_collections_shards[0].emplace(
+          pretoken, TokenCollection(pretoken));
     }
   }
 
-  for (const auto &[pretoken, collection] : token_collections) {
-    for (const auto &[pair, freq] : collection.GetPairFreq()) {
-      pairs_cnt[pair] += pretoken_freq.at(pretoken) * freq;
+  for (const auto& token_collections : token_collections_shards) {
+    for (const auto &[pretoken, collection] : token_collections) {
+      for (const auto &[pair, freq] : collection.GetPairFreq()) {
+        pairs_cnt[pair] += pretoken_freq.at(pretoken) * freq;
+      }
     }
   }
   for (const auto &[pair, cnt] : pairs_cnt) {
@@ -76,35 +83,26 @@ void BPEBuilder::Train() {
       break;
     }
 
-    TokenCollection::PairFreqMap merged_diff;
+    std::vector<std::vector<std::pair<TokenCollection::PairFreqMap, int32_t>>>
+        shard_diffs(total_shards);
     if (total_shards > 1) {
-      std::vector<std::vector<std::pair<TokenCollection::PairFreqMap, int32_t>>>
-          shard_diffs;
-      shard_diffs.reserve(total_shards);
-      for (size_t i = 0; i < total_shards; ++i) {
-        shard_diffs.push_back({});
-      }
-
       boost::asio::thread_pool pool(total_shards);
       for (size_t shard = 0; shard < total_shards; ++shard) {
-        boost::asio::post(pool, std::bind(&BPEBuilder::ProcessShard, this,
-                                          shard, target_pair, pretoken_shards,
-                                          &shard_diffs[shard]));
+        boost::asio::post(
+            pool, std::bind(&BPEBuilder::ProcessShard, this, target_pair,
+                            std::ref(token_collections_shards[shard]),
+                            &shard_diffs[shard]));
       }
       pool.join();
-
-      for (auto &shard : shard_diffs) {
-        for (const auto &[diff, freq] : shard) {
-          for (const auto &[diff_pair, delta] : diff) {
-            merged_diff[diff_pair] += delta * freq;
-          }
-        }
-      }
     } else {
-      for (auto &[pretoken, collection] : token_collections) {
-        for (const auto &[diff_pair, delta] :
-             collection.MergePair(target_pair, vocab.size() - 1)) {
-          merged_diff[diff_pair] += delta * pretoken_freq.at(pretoken);
+      ProcessShard(target_pair, token_collections_shards[0], &shard_diffs[0]);
+    }
+
+    TokenCollection::PairFreqMap merged_diff;
+    for (auto &shard : shard_diffs) {
+      for (const auto &[diff, freq] : shard) {
+        for (const auto &[diff_pair, delta] : diff) {
+          merged_diff[diff_pair] += delta * freq;
         }
       }
     }
@@ -161,25 +159,14 @@ TokenCollection::TokenIdPair BPEBuilder::FindBestPair() {
     }
     pairs_cnt_queue.pop();
   }
-  // int32_t max_count = -1;
-  // for (const auto &[pair, cnt] : pairs_cnt) {
-  //   if (FreqPairComparator(std::make_pair(cnt, pair),
-  //                          std::make_pair(max_count, target_pair))) {
-  //     target_pair = pair;
-  //     max_count = cnt;
-  //   }
-  // }
   return target_pair;
 }
 
 void BPEBuilder::ProcessShard(
-    size_t shard, TokenCollection::TokenIdPair target_pair,
-    const std::unordered_map<std::string, size_t> &pretoken_shards,
+    const TokenCollection::TokenIdPair target_pair,
+    std::unordered_map<std::string, TokenCollection>& token_collections,
     std::vector<std::pair<TokenCollection::PairFreqMap, int32_t>> *out) {
   for (auto &[pretoken, collection] : token_collections) {
-    if (pretoken_shards.at(pretoken) != shard) {
-      continue;
-    }
     out->push_back(
         std::make_pair(collection.MergePair(target_pair, vocab.size() - 1),
                        pretoken_freq.at(pretoken)));

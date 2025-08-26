@@ -24,7 +24,8 @@ parser.add_argument("--dataset", type=str, default=None)
 parser.add_argument("--vocab_size", type=int, default=10000)
 parser.add_argument("--special_tokens", type=list, default=["<|endoftext|>"])
 parser.add_argument("--output_dir", type=str, default="./")
-parser.add_argument("--dump_merges", action="store_true")
+parser.add_argument("--output_name", type=str, default="vocab.json")
+parser.add_argument("--output_merges_name", type=str, default=None)
 parser.add_argument("--recompile", action="store_true")
 
 
@@ -85,11 +86,11 @@ if __name__ == "__main__":
     dur = time.time() - start
     print(f"Training finished. Took: {dur:.2f} seconds.")
 
-    with open(pathlib.Path(args.output_dir) / "vocab.json", "w") as f:
+    with open(pathlib.Path(args.output_dir) / args.output_name, "w") as f:
         json.dump({k: v.decode(ENCODING, errors="ignore") for k, v in vocab.items()}, f)
 
-    if args.dump_merges:
-        with open(pathlib.Path(args.output_dir) / "merges.txt", "w") as f:
+    if args.output_merges_name:
+        with open(pathlib.Path(args.output_dir) / args.output_merges_name, "w") as f:
             f.writelines(
                 [
                     f"{merge[0].decode(ENCODING, errors="ignore")} {merge[1].decode(ENCODING, errors="ignore")}\n"

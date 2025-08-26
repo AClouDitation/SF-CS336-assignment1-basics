@@ -119,19 +119,30 @@ def pretokenize_from_file(
     return pretoken_cnt
 
 
-def count_owt_example(dataset: Dataset, idx: int):
-    return _count_pretoken(dataset[idx]["text"].encode("utf-8"))
+def count_owt_example(dataset: Dataset):
+    pretoken_cnt: dict[bytes, int] = defaultdict(int)
+    for example in dataset:
+        for k, v in _count_pretoken(example["text"].encode("utf-8")).items():  # type: ignore
+            pretoken_cnt[k] += v
+    return pretoken_cnt
 
 
 def pretokenize_owt() -> dict[bytes, int]:
     num_processes = os.cpu_count() or 1
-    max_chunks = 100
 
-    dataset: Dataset = load_dataset("Skylion007/openwebtext", num_proc=num_processes)["train"]  # type: ignore
+    dataset: Dataset = load_dataset("Skylion007/openwebtext", num_proc=num_processes, split="train")  # type: ignore
+    total_chunks = len(dataset)
+    print("Loading %d chunks..." % total_chunks, end='')
+    shards = [
+        dataset.shard(num_shards=num_processes, index=i) for i in range(num_processes)
+    ]
+    print("into %d shards" % len(shards))
+    print("PID: %d" % os.getpid())
     with ProcessPoolExecutor(max_workers=num_processes) as executor:
         futures = []
-        for i in range(min(len(dataset), max_chunks)):
-            futures.append(executor.submit(count_owt_example, dataset, i))
+        for shard in shards:
+            futures.append(executor.submit(count_owt_example, shard))
+    print("Done")
 
     pretoken_cnt: dict[bytes, int] = defaultdict(int)
     for future in futures:

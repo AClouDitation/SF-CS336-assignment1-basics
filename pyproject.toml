@@ -20,6 +20,7 @@ dependencies = [
     "wandb>=0.19.7",
     "ty>=0.0.1a16",
     "cppyy>=3.5.0",
+    "datasets==3.6.0",
 ]
 
 [build-system]

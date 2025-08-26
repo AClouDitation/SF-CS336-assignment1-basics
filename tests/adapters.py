@@ -9,6 +9,7 @@ import numpy.typing as npt
 import torch
 from torch import Tensor
 from cs336_basics.bpe_tokenization import train_bpe_main
+from cs336_basics.bpe_tokenization import pretokenization
 
 
 def run_linear(
@@ -590,4 +591,7 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    return train_bpe_main.train_bpe(input_path, vocab_size, special_tokens, use_cpp=True)
+    pretokenize_fn = lambda: pretokenization.pretokenize_from_file(
+        input_path, [t.encode(train_bpe_main.ENCODING) for t in special_tokens]
+    )
+    return train_bpe_main.train_bpe(pretokenize_fn, vocab_size, special_tokens)

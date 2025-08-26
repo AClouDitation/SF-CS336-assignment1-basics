@@ -1,6 +1,8 @@
 import os
 import regex as re
 
+from datasets import load_dataset
+from datasets.arrow_dataset import Dataset
 from typing import BinaryIO
 from concurrent.futures import ProcessPoolExecutor
 from collections import defaultdict
@@ -10,7 +12,7 @@ PAT = re.compile(
 )
 
 
-def find_chunk_boundaries(
+def _find_chunk_boundaries(
     file: BinaryIO,
     desired_num_chunks: int,
     regex_pattern: re.Pattern | bytes,
@@ -56,7 +58,7 @@ def find_chunk_boundaries(
     return sorted(set(chunk_boundaries))
 
 
-def read_and_split_chunk(
+def _read_and_split_chunk(
     file_path: str | os.PathLike, start: int, end: int, regex_pattern: re.Pattern
 ) -> list[bytes]:
     with open(file_path, "rb") as f:
@@ -66,33 +68,33 @@ def read_and_split_chunk(
     return [m for m in re.split(regex_pattern, chunk)]
 
 
-def count_pretoken(chunk: bytes) -> dict[bytes, int]:
+def _count_pretoken(chunk: bytes) -> dict[bytes, int]:
     pretoken_cnt: dict[bytes, int] = defaultdict(int)
     for pretoken in re.findall(PAT, chunk):
         pretoken_cnt[pretoken] += 1
     return pretoken_cnt
 
 
-def read_and_count_pretoken(
+def _read_and_count_pretoken(
     file_path: str | os.PathLike, start: int, end: int, regex_pattern: re.Pattern
 ) -> dict[bytes, int]:
     pretoken_cnt: dict[bytes, int] = defaultdict(int)
 
-    for chunk in read_and_split_chunk(file_path, start, end, regex_pattern):
-        for k, v in count_pretoken(chunk).items():
+    for chunk in _read_and_split_chunk(file_path, start, end, regex_pattern):
+        for k, v in _count_pretoken(chunk).items():
             pretoken_cnt[k] += v
 
     return pretoken_cnt
 
 
-def pretokenize(
+def pretokenize_from_file(
     file_path: str | os.PathLike, separators: list[bytes]
 ) -> dict[bytes, int]:
     regex_pattern = re.compile(b"|".join(map(re.escape, separators)))
     num_processes = os.cpu_count() or 1
 
     with open(file_path, "rb") as f:
-        boundaries = find_chunk_boundaries(f, num_processes, regex_pattern)
+        boundaries = _find_chunk_boundaries(f, num_processes, regex_pattern)
 
     print("Loading %d chunks" % (len(boundaries) - 1))
     if len(boundaries) > 2:
@@ -101,7 +103,7 @@ def pretokenize(
             for start, end in zip(boundaries[:-1], boundaries[1:]):
                 futures.append(
                     executor.submit(
-                        read_and_count_pretoken, file_path, start, end, regex_pattern
+                        _read_and_count_pretoken, file_path, start, end, regex_pattern
                     )
                 )
 
@@ -110,8 +112,29 @@ def pretokenize(
             for k, v in future.result().items():
                 pretoken_cnt[k] += v
     else:
-        pretoken_cnt = read_and_count_pretoken(
+        pretoken_cnt = _read_and_count_pretoken(
             file_path, boundaries[0], boundaries[1], regex_pattern
         )
 
+    return pretoken_cnt
+
+
+def count_owt_example(dataset: Dataset, idx: int):
+    return _count_pretoken(dataset[idx]["text"].encode("utf-8"))
+
+
+def pretokenize_owt() -> dict[bytes, int]:
+    num_processes = os.cpu_count() or 1
+    max_chunks = 100
+
+    dataset: Dataset = load_dataset("Skylion007/openwebtext", num_proc=num_processes)["train"]  # type: ignore
+    with ProcessPoolExecutor(max_workers=num_processes) as executor:
+        futures = []
+        for i in range(min(len(dataset), max_chunks)):
+            futures.append(executor.submit(count_owt_example, dataset, i))
+
+    pretoken_cnt: dict[bytes, int] = defaultdict(int)
+    for future in futures:
+        for k, v in future.result().items():
+            pretoken_cnt[k] += v
     return pretoken_cnt

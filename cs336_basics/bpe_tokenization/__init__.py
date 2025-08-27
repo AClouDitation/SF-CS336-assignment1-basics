@@ -5,6 +5,7 @@ import cppyy
 RECOMPILE = False
 
 CC_PATH = (pathlib.Path(__file__).resolve().parent) / "cc"
+ENCODING = "utf-8"
 
 
 cc_files = list(CC_PATH.glob("*.cc"))

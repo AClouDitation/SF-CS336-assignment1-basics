@@ -5,7 +5,7 @@ import json
 
 from base64 import b64encode
 from typing import Callable
-from cs336_basics import bpe_tokenization
+from cs336_basics.bpe_tokenization import cc
 from cs336_basics.bpe_tokenization import pretokenization, ENCODING
 
 
@@ -34,12 +34,8 @@ def train_bpe(
     recompile: bool = False,
 ) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
     if recompile:
-        bpe_tokenization.compile_cc()
-    bpe_tokenization.load_cpp_libs()
-
-    from cppyy.gbl import bpe as cc  # type: ignore
-
-    cc.BPEBuilder.Train.__release_gil__ = True
+        cc.compile()
+        cc.load_libs()
 
     builder = cc.BPEBuilder(
         special_tokens=special_tokens,

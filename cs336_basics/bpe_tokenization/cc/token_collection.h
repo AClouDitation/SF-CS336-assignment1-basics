@@ -29,9 +29,9 @@ public:
 private:
   void ReplacePair(Index first_idx, TokenId new_token_id);
 
-  std::vector<TokenId> token_ids;
-  std::vector<Index> prev;
-  std::vector<Index> next;
+  std::vector<TokenId> token_ids_;
+  std::vector<Index> prev_;
+  std::vector<Index> next_;
   std::unordered_map<TokenIdPair, std::set<Index>, boost::hash<TokenIdPair>> pair_first_idx;
 };
 

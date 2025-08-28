@@ -40,20 +40,20 @@ private:
       std::vector<std::pair<TokenCollection, int32_t>> &token_collections,
       std::vector<std::pair<TokenCollection::PairFreqMap, int32_t>> *out);
 
-  const size_t target_vocab_size;
-  std::vector<std::string> vocab;
-  std::unordered_map<std::string, int32_t> pretoken_freq;
-  std::vector<std::vector<std::pair<TokenCollection, int32_t>>> token_collections_shards;
+  const size_t target_vocab_size_;
+  std::vector<std::string> vocab_;
+  std::unordered_map<std::string, int32_t> pretoken_freq_;
+  std::vector<std::vector<std::pair<TokenCollection, int32_t>>> token_collections_shards_;
 
-  size_t max_total_shards;
-  size_t target_pretoken_per_shard;
+  size_t max_total_shards_;
+  size_t target_pretoken_per_shard_;
 
-  TokenCollection::PairFreqMap pairs_cnt;
+  TokenCollection::PairFreqMap pairs_cnt_;
 
   std::priority_queue<FreqPair, std::vector<FreqPair>,
                       std::function<bool(const FreqPair &, const FreqPair &)>>
-      pairs_cnt_queue;
-  std::vector<std::pair<std::string, std::string>> merges;
+      pairs_cnt_queue_;
+  std::vector<std::pair<std::string, std::string>> merges_;
 };
 
 } // namespace bpe

@@ -8,6 +8,12 @@ from cs336_basics.bpe_tokenization import pretokenization, ENCODING
 from typing import Iterable, Iterator
 
 
+class Node:
+    def __init__(self, token: bytes):
+        self.token = token
+        self.next: Node | None = None
+
+
 class Tokenizer:
 
     def __init__(
@@ -35,7 +41,6 @@ class Tokenizer:
         for token, i in self._reverse_vocab.items():
             self._vocab[i] = token
 
-        # self._len_sorted_vocab = sorted(self.vocab, key=len, reverse=True)
         self._merges = merges
         self._cache: dict[bytes, list[int]] = {}
 
@@ -63,25 +68,30 @@ class Tokenizer:
         return cls(vocab, merges, special_tokens)
 
     def _encode_pretoken(self, pretoken: bytes) -> list[int]:
+        if not pretoken:
+            return []
         if pretoken in self._cache:
             return self._cache[pretoken]
-        tokens: list[bytes] = [b.to_bytes() for b in pretoken]
+
+        head = Node(pretoken[0].to_bytes())
+        tail = head
+        for b in pretoken[1:]:
+            tail.next = Node(b.to_bytes())
+            tail = tail.next
+
         for merge in self._merges:
-            to_replace: list[int] = []
-            skip_next = False
-            for idx, pair in enumerate(itertools.pairwise(tokens)):
-                if skip_next:
-                    skip_next = False
-                    continue
-                if pair == merge:
-                    to_replace.append(idx)
-                    skip_next = True
+            curr = head
+            while curr and curr.next:
+                if (curr.token, curr.next.token) == merge:
+                    curr.token = merge[0] + merge[1]
+                    curr.next = curr.next.next
+                curr = curr.next
 
-            for idx in to_replace[::-1]:
-                tokens[idx] = merge[0] + merge[1]
-                tokens.pop(idx + 1)
-
-        token_ids = [self._reverse_vocab[token] for token in tokens]
+        token_ids: list[int] = []
+        curr = head
+        while curr:
+            token_ids.append(self._reverse_vocab[curr.token])
+            curr = curr.next
         self._cache[pretoken] = token_ids
         return token_ids
 
@@ -121,7 +131,10 @@ if __name__ == "__main__":
         text = f.read()
     start = time.time()
     token_ids = t.encode(text)
-    print("TokenIds:", token_ids)
+    # print("TokenIds:", token_ids)
+    print(f"Encode Duration: {time.time() - start:.2f}")
+
+    start = time.time()
     decoded_text = t.decode(token_ids)
-    print(f"Duration: {time.time() - start:.2f}")
-    print("Decoded Text:", decoded_text)
+    # print("Decoded Text:", decoded_text)
+    print(f"Decode Duration: {time.time() - start:.2f}")

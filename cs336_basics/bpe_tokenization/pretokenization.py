@@ -3,10 +3,9 @@ import regex as re
 
 from datasets import load_dataset
 from datasets.arrow_dataset import Dataset
-from typing import BinaryIO
+from typing import BinaryIO, Iterable
 from concurrent.futures import ProcessPoolExecutor
 from collections import defaultdict
-
 from cs336_basics.bpe_tokenization import ENCODING
 
 PAT = re.compile(
@@ -60,16 +59,21 @@ def _find_chunk_boundaries(
     return sorted(set(chunk_boundaries))
 
 
-def split_chunks(chunks: bytes, separators: list[bytes]) -> list[bytes]:
+def split_chunks(chunks: bytes, separators: list[bytes], keep_separator: bool = False) -> list[bytes]:
     if not separators:
         return [chunks]
-    regex_pattern = re.compile(b"|".join(map(re.escape, separators)))
+    regex_pattern = b"|".join(map(re.escape, separators))
+    if keep_separator:
+        regex_pattern = b"(%s)" % regex_pattern
     return [m for m in re.split(regex_pattern, chunks)]
 
 
 def pretokenize(chunks: bytes, separators: list[bytes]) -> list[bytes]:
     pretokens: list[bytes] = []
-    for chunk in split_chunks(chunks, separators):
+    for chunk in split_chunks(chunks, separators, keep_separator=True):
+        if chunk in separators:
+            pretokens.append(chunk)
+            continue
         for pretoken in re.findall(PAT, chunk):
             pretokens.append(pretoken)
     return pretokens

@@ -3,7 +3,7 @@ import regex as re
 
 from datasets import load_dataset
 from datasets.arrow_dataset import Dataset
-from typing import BinaryIO, Iterable
+from typing import BinaryIO
 from concurrent.futures import ProcessPoolExecutor
 from collections import defaultdict
 from cs336_basics.bpe_tokenization import ENCODING

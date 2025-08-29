@@ -1,4 +1,3 @@
-import itertools
 import json
 import os
 import pathlib
@@ -60,8 +59,8 @@ class Tokenizer:
                 assert len(merged_tokens) == 2, f"Invalid merge line: {line}"
                 merges.append(
                     (
-                        merged_tokens[0].encode(ENCODING),
-                        merged_tokens[1].encode(ENCODING),
+                        b64decode(merged_tokens[0].encode(ENCODING)),
+                        b64decode(merged_tokens[1].encode(ENCODING)),
                     )
                 )
 
@@ -80,6 +79,7 @@ class Tokenizer:
             tail = tail.next
 
         for merge in self._merges:
+            print(merge)
             curr = head
             while curr and curr.next:
                 if (curr.token, curr.next.token) == merge:

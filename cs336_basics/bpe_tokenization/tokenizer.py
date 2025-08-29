@@ -73,33 +73,44 @@ class Tokenizer:
         if pretoken in self._pretoken_cache:
             return self._pretoken_cache[pretoken]
 
-        existing_token = defaultdict(list[Node])
         head = Node(pretoken[0].to_bytes())
-
-        existing_token[pretoken[0].to_bytes()].append(head)
         tail = head
 
         for b in pretoken[1:]:
             tail.next = Node(b.to_bytes())
             tail = tail.next
-            existing_token[b.to_bytes()].append(tail)
 
-        for merge in self._merges:
-            if merge[0] not in existing_token:
-                continue
-
+        while True:
+            min_rank = None
             curr = head
-            for node in existing_token[merge[0]]:
-                if node.next and (node.token, node.next.token) == merge:
-                    node.token = merge[0] + merge[1]
-                    node.next = node.next.next
-                    existing_token[merge[0] + merge[1]].append(node)
+            nodes_to_merge = []
+            while curr and curr.next:
+                rank = self._reverse_vocab.get(curr.token + curr.next.token)
+                if rank is not None:
+                    if min_rank is None or rank < min_rank:
+                        min_rank = rank
+                        nodes_to_merge = [curr]
+                    elif rank == min_rank:
+                        nodes_to_merge.append(curr)
+                curr = curr.next
 
+            if min_rank is None:
+                break
+        
+            node_removed = set()
+            for node in nodes_to_merge:
+                if id(node) in node_removed:
+                    continue
+                node_removed.add(id(node.next))
+                node.token = node.token + node.next.token # type: ignore
+                node.next = node.next.next # type: ignore
+        
         token_ids: list[int] = []
         curr = head
         while curr:
             token_ids.append(self._reverse_vocab[curr.token])
             curr = curr.next
+
         self._pretoken_cache[pretoken] = token_ids
         return token_ids
 
@@ -123,7 +134,8 @@ class Tokenizer:
 
     def decode(self, token_ids: list[int]) -> str:
         tokens = [self._vocab[i] for i in token_ids]
-        return b''.join(tokens).decode(ENCODING, errors="replace")
+        return b"".join(tokens).decode(ENCODING, errors="replace")
+
 
 if __name__ == "__main__":
     from tests.common import FIXTURES_PATH

@@ -5,6 +5,7 @@ import pathlib
 from base64 import b64decode
 from cs336_basics.bpe_tokenization import pretokenization, ENCODING
 from typing import Iterable, Iterator
+from collections import defaultdict
 
 
 class Node:
@@ -41,7 +42,7 @@ class Tokenizer:
             self._vocab[i] = token
 
         self._merges = merges
-        self._cache: dict[bytes, list[int]] = {}
+        self._pretoken_cache: dict[bytes, list[int]] = {}
 
     @classmethod
     def from_files(
@@ -69,30 +70,37 @@ class Tokenizer:
     def _encode_pretoken(self, pretoken: bytes) -> list[int]:
         if not pretoken:
             return []
-        if pretoken in self._cache:
-            return self._cache[pretoken]
+        if pretoken in self._pretoken_cache:
+            return self._pretoken_cache[pretoken]
 
+        existing_token = defaultdict(list[Node])
         head = Node(pretoken[0].to_bytes())
+
+        existing_token[pretoken[0].to_bytes()].append(head)
         tail = head
+
         for b in pretoken[1:]:
             tail.next = Node(b.to_bytes())
             tail = tail.next
+            existing_token[b.to_bytes()].append(tail)
 
         for merge in self._merges:
-            print(merge)
+            if merge[0] not in existing_token:
+                continue
+
             curr = head
-            while curr and curr.next:
-                if (curr.token, curr.next.token) == merge:
-                    curr.token = merge[0] + merge[1]
-                    curr.next = curr.next.next
-                curr = curr.next
+            for node in existing_token[merge[0]]:
+                if node.next and (node.token, node.next.token) == merge:
+                    node.token = merge[0] + merge[1]
+                    node.next = node.next.next
+                    existing_token[merge[0] + merge[1]].append(node)
 
         token_ids: list[int] = []
         curr = head
         while curr:
             token_ids.append(self._reverse_vocab[curr.token])
             curr = curr.next
-        self._cache[pretoken] = token_ids
+        self._pretoken_cache[pretoken] = token_ids
         return token_ids
 
     def encode(self, text: str) -> list[int]:

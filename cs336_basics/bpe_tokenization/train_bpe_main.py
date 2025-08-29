@@ -4,9 +4,7 @@ import time
 import json
 
 from base64 import b64encode
-from typing import Callable
-from cs336_basics.bpe_tokenization import cc
-from cs336_basics.bpe_tokenization import pretokenization, ENCODING
+from cs336_basics.bpe_tokenization import pretokenization, bpe_trainer, ENCODING
 
 
 DEFAULT_DATASET_PATH = (
@@ -27,42 +25,13 @@ parser.add_argument("--output_merges_name", type=str, default="merges.txt")
 parser.add_argument("--recompile", action="store_true")
 
 
-def train_bpe(
-    pretokenize_fn: Callable[[], dict[bytes, int]],
-    target_vocab_size: int,
-    special_tokens: list[str],
-    recompile: bool = False,
-) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
-    if recompile:
-        cc.compile()
-        cc.load_libs()
-
-    builder = cc.BPEBuilder(
-        special_tokens=special_tokens,
-        target_vocab_size=target_vocab_size,
-    )
-
-    for pretoken, count in pretokenize_fn().items():
-        builder.AddPretoken(pretoken, count)
-
-    builder.Train()
-    vocab = builder.GetVocab()
-    merges = builder.GetMerges()
-
-    return {i: bytes(t) for i, t in enumerate(vocab)}, [
-        (bytes(merge.first), bytes(merge.second)) for merge in merges
-    ]  # type:ignore
-
-
 if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.dataset:
-        match args.dataset:
-            case "owt":
-                pretokenize_fn = pretokenization.count_pretokens_owt
-            case _:
-                raise ValueError(f"Unknown dataset: {args.dataset}")
+        pretokenize_fn = lambda: pretokenization.count_pretokens_from_hugging_face(
+            args.dataset
+        )
     elif args.file:
         pretokenize_fn = lambda: pretokenization.count_pretokens_from_file(
             args.file, [t.encode(ENCODING) for t in args.special_tokens]
@@ -71,7 +40,7 @@ if __name__ == "__main__":
         raise ValueError("Either --file or --dataset must be provided.")
 
     start = time.time()
-    vocab, merges = train_bpe(
+    vocab, merges = bpe_trainer.train_bpe(
         pretokenize_fn=pretokenize_fn,
         target_vocab_size=args.vocab_size,
         special_tokens=args.special_tokens,

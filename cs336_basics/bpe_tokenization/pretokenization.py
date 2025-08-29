@@ -133,19 +133,23 @@ def count_pretokens_from_file(
     return pretoken_cnt
 
 
-def _count_pretokens_from_owt_dataset(dataset: Dataset):
+def _count_pretokens_from_dataset(dataset: Dataset):
     pretoken_cnt: dict[bytes, int] = defaultdict(int)
     for example in dataset:
-        for k, v in count_pretokens(example["text"].encode(ENCODING)).items():  # type: ignore
+        for k, v in count_pretokens(example["text"].encode(ENCODING), []).items():  # type: ignore
             pretoken_cnt[k] += v
     return pretoken_cnt
 
 
-def count_pretokens_owt() -> dict[bytes, int]:
+def count_pretokens_from_hugging_face(hugging_face_dataset: str) -> dict[bytes, int]:
+    assert hugging_face_dataset in [
+        "Skylion007/openwebtext",
+        "roneneldan/TinyStories",
+    ], "Unsupported dataset: %s" % hugging_face_dataset
 
     num_processes = os.cpu_count() or 1
 
-    dataset: Dataset = load_dataset("Skylion007/openwebtext", num_proc=num_processes, split="train")  # type: ignore
+    dataset: Dataset = load_dataset(hugging_face_dataset, num_proc=num_processes, split="train")  # type: ignore
     total_chunks = len(dataset)
     print("Loading %d chunks..." % total_chunks, end="")
     shards = [
@@ -156,7 +160,7 @@ def count_pretokens_owt() -> dict[bytes, int]:
     with ProcessPoolExecutor(max_workers=num_processes) as executor:
         futures = []
         for shard in shards:
-            futures.append(executor.submit(_count_pretokens_from_owt_dataset, shard))
+            futures.append(executor.submit(_count_pretokens_from_dataset, shard))
     print("Done")
 
     pretoken_cnt: dict[bytes, int] = defaultdict(int)

@@ -8,9 +8,8 @@ from jaxtyping import Float, Int
 import numpy.typing as npt
 import torch
 from torch import Tensor
-from cs336_basics.bpe_tokenization import pretokenization
-from cs336_basics.bpe_tokenization import train_bpe_main
-from cs336_basics.bpe_tokenization import tokenizer
+from cs336_basics.bpe_tokenization import pretokenization, bpe_trainer, tokenizer
+from cs336_basics.bpe_tokenization import ENCODING
 
 
 def run_linear(
@@ -593,6 +592,6 @@ def run_train_bpe(
                 Merges are ordered by order of creation.
     """
     pretokenize_fn = lambda: pretokenization.count_pretokens_from_file(
-        input_path, [t.encode(train_bpe_main.ENCODING) for t in special_tokens]
+        input_path, [t.encode(ENCODING) for t in special_tokens]
     )
-    return train_bpe_main.train_bpe(pretokenize_fn, vocab_size, special_tokens)
+    return bpe_trainer.train_bpe(pretokenize_fn, vocab_size, special_tokens)

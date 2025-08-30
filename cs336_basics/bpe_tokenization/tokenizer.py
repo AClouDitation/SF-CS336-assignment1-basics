@@ -1,19 +1,30 @@
 import json
 import os
-import pathlib
+import heapq
 
 from base64 import b64decode
 from cs336_basics.bpe_tokenization import pretokenization, ENCODING
 from typing import Iterable, Iterator
-from collections import defaultdict
 
 
 class Node:
     def __init__(self, token: bytes):
         self.token = token
+        self.prev: Node | None = None
         self.next: Node | None = None
 
+    def __repr__(self) -> str:
+        curr = self
+        tokens = []
+        while curr:
+            tokens.append(curr.token)
+            curr = curr.next
+        return "<->".join([f"'{t.decode(ENCODING, errors="replace")}'" for t in tokens])
+    
+    def __lt__(self, other: "Node") -> bool:
+        return id(self) < id(other)
 
+    
 class Tokenizer:
 
     def __init__(
@@ -23,19 +34,12 @@ class Tokenizer:
         special_tokens: list[str] | None = None,
     ):
         self._reverse_vocab = {v: k for k, v in vocab.items()}
-        self._special_tokens = (
-            sorted(
-                [token.encode(ENCODING) for token in special_tokens],
-                key=len,
-                reverse=True,
-            )
-            if special_tokens
-            else []
-        )
-
-        for special_token in self._special_tokens:
-            if special_token not in self._reverse_vocab:
-                self._reverse_vocab[special_token] = len(self._reverse_vocab)
+        self._special_tokens = set()
+        if special_tokens: 
+            self._special_tokens = set(token.encode(ENCODING) for token in special_tokens)
+            for special_token in sorted(self._special_tokens, key=len, reverse=True):
+                if special_token not in self._reverse_vocab:
+                    self._reverse_vocab[special_token] = len(self._reverse_vocab)
 
         self._vocab = [b""] * len(self._reverse_vocab)
         for token, i in self._reverse_vocab.items():
@@ -74,37 +78,87 @@ class Tokenizer:
             return self._pretoken_cache[pretoken]
 
         head = Node(pretoken[0].to_bytes())
-        tail = head
-
+        curr = head
         for b in pretoken[1:]:
-            tail.next = Node(b.to_bytes())
-            tail = tail.next
+            curr.next = Node(b.to_bytes())
+            curr = curr.next
 
         while True:
+            min_node = None
             min_rank = None
             curr = head
-            nodes_to_merge = []
             while curr and curr.next:
                 rank = self._reverse_vocab.get(curr.token + curr.next.token)
                 if rank is not None:
                     if min_rank is None or rank < min_rank:
                         min_rank = rank
-                        nodes_to_merge = [curr]
-                    elif rank == min_rank:
-                        nodes_to_merge.append(curr)
+                        min_node = curr
                 curr = curr.next
 
             if min_rank is None:
                 break
-        
-            node_removed = set()
-            for node in nodes_to_merge:
-                if id(node) in node_removed:
-                    continue
-                node_removed.add(id(node.next))
-                node.token = node.token + node.next.token # type: ignore
-                node.next = node.next.next # type: ignore
-        
+            # assert min_node and min_node.next
+
+            min_node.token = min_node.token + min_node.next.token  # type: ignore
+            min_node.next = min_node.next.next  # type: ignore
+
+        token_ids: list[int] = []
+        curr = head
+        while curr:
+            token_ids.append(self._reverse_vocab[curr.token])
+            curr = curr.next
+
+        self._pretoken_cache[pretoken] = token_ids
+        return token_ids
+
+    def _encode_pretoken_v2(self, pretoken: bytes) -> list[int]:
+        if not pretoken:
+            return []
+        if pretoken in self._pretoken_cache:
+            return self._pretoken_cache[pretoken]
+
+        head = Node(pretoken[0].to_bytes())
+        curr = head
+        heap = []
+        for b in pretoken[1:]:
+            new_node = Node(b.to_bytes())
+            curr.next = new_node
+            new_node.prev = curr
+
+            if rank := self._reverse_vocab.get(curr.token + new_node.token):
+                heap.append((rank, curr))
+
+            curr = new_node
+        heapq.heapify(heap)
+
+        while heap:
+            min_rank, min_node = heapq.heappop(heap)
+            if not min_node.next:
+                continue
+            pair = min_node.token + min_node.next.token
+            if min_rank != self._reverse_vocab.get(pair):
+                continue  # Outdated heap entry
+
+            min_node.token = pair
+            to_remove = min_node.next
+            min_node.next = to_remove.next
+            if to_remove.next:
+                to_remove.next.prev = min_node
+                to_remove.next = None
+                to_remove.prev = None
+
+            if min_node.prev:
+                pair = min_node.prev.token + min_node.token
+                rank = self._reverse_vocab.get(pair)
+                if rank is not None:
+                    heapq.heappush(heap, (rank, min_node.prev))
+
+            if min_node.next:
+                pair = min_node.token + min_node.next.token
+                rank = self._reverse_vocab.get(pair)
+                if rank is not None:
+                    heapq.heappush(heap, (rank, min_node))
+
         token_ids: list[int] = []
         curr = head
         while curr:
@@ -124,7 +178,7 @@ class Tokenizer:
             if pretoken in self._special_tokens:
                 pretoken_token_ids[pretoken] = [self._reverse_vocab[pretoken]]
             else:
-                pretoken_token_ids[pretoken] = self._encode_pretoken(pretoken)
+                pretoken_token_ids[pretoken] = self._encode_pretoken_v2(pretoken)
 
         return [id for pretoken in pretokens for id in pretoken_token_ids[pretoken]]
 
@@ -139,22 +193,29 @@ class Tokenizer:
 
 if __name__ == "__main__":
     from tests.common import FIXTURES_PATH
+    from tests.test_tokenizer import get_tokenizer_from_vocab_merges_path
     import time
 
-    t = Tokenizer.from_files(
-        pathlib.Path(__file__).resolve().parent / "tiny_stories_5m/vocab.json",
-        pathlib.Path(__file__).resolve().parent / "tiny_stories_5m/merges.txt",
-        special_tokens=["<|endoftext|>", "<|endoftext|><|endoftext|>"],
+    # t = Tokenizer.from_files(
+    #     vocab_file=dir / "tiny_stories/vocab_10k.json",
+    #     merges_file=dir / "tiny_stories/merges_10k.txt",
+    #     special_tokens=[],
+    # )
+    t = get_tokenizer_from_vocab_merges_path(
+        FIXTURES_PATH / "gpt2_vocab.json",
+        FIXTURES_PATH / "gpt2_merges.txt",
+        special_tokens=["<|endoftext|>"],
     )
 
-    with open(FIXTURES_PATH / "tinystories_sample_5M.txt", "r", encoding=ENCODING) as f:
-        text = f.read()
+    # with open(FIXTURES_PATH / "tinystories_sample_5M.txt", "r", encoding=ENCODING) as f:
+    #     text = f.read()
     start = time.time()
-    token_ids = t.encode(text)
-    # print("TokenIds:", token_ids)
+    token_ids = t.encode("Lily")
+    print("TokenIds:", token_ids)
+    print("Tokens:", [t.decode([id]) for id in token_ids])
     print(f"Encode Duration: {time.time() - start:.2f}")
 
     start = time.time()
     decoded_text = t.decode(token_ids)
-    # print("Decoded Text:", decoded_text)
+    print("Decoded Text:", decoded_text)
     print(f"Decode Duration: {time.time() - start:.2f}")

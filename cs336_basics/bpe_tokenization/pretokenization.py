@@ -3,14 +3,15 @@ import regex as re
 
 from datasets import load_dataset
 from datasets.arrow_dataset import Dataset
-from typing import BinaryIO
+from typing import BinaryIO, Iterable
 from concurrent.futures import ProcessPoolExecutor
 from collections import defaultdict
 from cs336_basics.bpe_tokenization import ENCODING
 
-PAT = re.compile(
-    rb"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-)
+# PAT = re.compile(
+#     rb"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+# )
+PAT = re.compile(rb"""'(?:[sdmt]|ll|ve|re)| ?\p{L}++| ?\p{N}++| ?[^\s\p{L}\p{N}]++|\s++$|\s+(?!\S)|\s""")
 
 
 def _find_chunk_boundaries(
@@ -59,16 +60,16 @@ def _find_chunk_boundaries(
     return sorted(set(chunk_boundaries))
 
 
-def split_chunks(chunks: bytes, separators: list[bytes], keep_separator: bool = False) -> list[bytes]:
+def split_chunks(chunks: bytes, separators: Iterable[bytes], keep_separator: bool = False) -> list[bytes]:
     if not separators:
         return [chunks]
-    regex_pattern = b"|".join(map(re.escape, separators))
+    regex_pattern = b"|".join(map(re.escape, sorted(separators, key=len, reverse=True)))
     if keep_separator:
         regex_pattern = b"(%s)" % regex_pattern
     return [m for m in re.split(regex_pattern, chunks)]
 
 
-def pretokenize(chunks: bytes, separators: list[bytes]) -> list[bytes]:
+def pretokenize(chunks: bytes, separators: Iterable[bytes]) -> list[bytes]:
     pretokens: list[bytes] = []
     for chunk in split_chunks(chunks, separators, keep_separator=True):
         if chunk in separators:

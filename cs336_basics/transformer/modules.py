@@ -68,3 +68,33 @@ class RMSNorm(torch.nn.Module):
         x = einx.divide("... d_model, ... -> ... d_model", x, rms)
         x = einx.multiply("... d_model, d_model -> ... d_model", x, self.gain)
         return x.to(self._dtype)
+
+
+class SwiGLU(torch.nn.Module):
+
+    def __init__(
+        self,
+        d_model: int,
+        d_ff: int,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ):
+        super().__init__()
+        self.W1: Float[Tensor, "d_ff d_model"] = torch.nn.Parameter(
+            torch.empty(d_ff, d_model, device=device, dtype=dtype)
+        )
+        self.W2: Float[Tensor, "d_model d_ff"] = torch.nn.Parameter(
+            torch.empty(d_model, d_ff, device=device, dtype=dtype)
+        )
+        self.W3: Float[Tensor, "d_ff d_model"] = torch.nn.Parameter(
+            torch.empty(d_ff, d_model, device=device, dtype=dtype)
+        )
+
+    def forward(self, x: Float[Tensor, "... d_model"]) -> Float[Tensor, "... d_model"]:
+        def silu(x: torch.Tensor) -> torch.Tensor:
+            return x * torch.sigmoid(x)
+
+        W1x = einx.dot("d_ff d_model, ... d_model -> ... d_ff", self.W1, x)
+        W3x = einx.dot("d_ff d_model, ... d_model -> ... d_ff", self.W3, x)
+        t = einx.multiply("... d_ff, ... d_ff -> ... d_ff", silu(W1x), W3x)
+        return einx.dot("d_model d_ff, ... d_ff -> ... d_model", self.W2, t)

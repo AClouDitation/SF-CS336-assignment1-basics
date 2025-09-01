@@ -3,6 +3,7 @@ import einx
 
 from torch import Tensor
 from jaxtyping import Float
+from cs336_basics.transformer import utils
 
 
 class Linear(torch.nn.Module):
@@ -138,3 +139,63 @@ class RotaryPositionalEmbedding(torch.nn.Module):
             swapped_x,
             self.sin[token_positions],  # type: ignore
         )
+
+class MultiHeadSelfAttention(torch.nn.Module):
+
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ):
+        assert (
+            d_model % num_heads == 0
+        ), "d_model must be divisible by num_heads, d_model=%d, num_heads=%d" % (
+            d_model,
+            num_heads,
+        )
+
+        self.num_heads = num_heads
+        self.head_dim = d_model // num_heads
+
+        super().__init__()
+        self.Wq: Float[Tensor, "d_model d_model"] = torch.nn.Parameter(
+            torch.empty(d_model, d_model, device=device, dtype=dtype)
+        )
+        self.Wk: Float[Tensor, "d_model d_model"] = torch.nn.Parameter(
+            torch.empty(d_model, d_model, device=device, dtype=dtype)
+        )
+        self.Wv: Float[Tensor, "d_model d_model"] = torch.nn.Parameter(
+            torch.empty(d_model, d_model, device=device, dtype=dtype)
+        )
+        self.Wo: Float[Tensor, "d_model d_model"] = torch.nn.Parameter(
+            torch.empty(d_model, d_model, device=device, dtype=dtype)
+        )
+
+    def forward(self, x:Float[Tensor, "... seq d_model"]) -> Float[Tensor, "... d_model"]:
+
+        Wq: Tensor = einx.rearrange(
+            "(h head_dim) d_model -> h head_dim d_model", self.Wq, h=self.num_heads
+        )  # type:ignore
+        Wk: Tensor = einx.rearrange(
+            "(h head_dim) d_model -> h head_dim d_model", self.Wk, h=self.num_heads
+        )  # type:ignore
+        Wv: Tensor = einx.rearrange(
+            "(h head_dim) d_model -> h head_dim d_model", self.Wv, h=self.num_heads
+        )  # type:ignore
+
+        Q = einx.dot("h head_dim d_model, ... seq d_model -> ... h seq head_dim", Wq, x)
+        K = einx.dot("h head_dim d_model, ... seq d_model -> ... h seq head_dim", Wk, x)
+        V = einx.dot("h head_dim d_model, ... seq d_model -> ... h seq head_dim", Wv, x)
+
+        seq_len = x.shape[-2]
+        mask = torch.tril(torch.ones(seq_len, seq_len)).bool().unsqueeze(0).unsqueeze(0)
+        mask = mask.to(Q.device)
+
+        attn: Tensor = einx.rearrange(
+            "... h seq head_dim -> ... seq (h head_dim)",
+            utils.scaled_dot_product_attention(Q, K, V, mask),
+        )  # type:ignore
+
+        return einx.dot("d_v d_model, ... seq d_model -> ... seq d_v", self.Wo, attn)

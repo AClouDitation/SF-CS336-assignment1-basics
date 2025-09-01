@@ -152,16 +152,16 @@ class MultiHeadSelfAttention(torch.nn.Module):
         self.num_heads = num_heads
         self._rope_module = rope_module
 
-        self.Wq: Float[Tensor, "d_model d_model"] = torch.nn.Parameter(
+        self.Wq: Float[Tensor, "d_k d_model"] = torch.nn.Parameter(
             torch.empty(d_model, d_model, device=device, dtype=dtype)
         )
-        self.Wk: Float[Tensor, "d_model d_model"] = torch.nn.Parameter(
+        self.Wk: Float[Tensor, "d_k d_model"] = torch.nn.Parameter(
             torch.empty(d_model, d_model, device=device, dtype=dtype)
         )
-        self.Wv: Float[Tensor, "d_model d_model"] = torch.nn.Parameter(
+        self.Wv: Float[Tensor, "d_v d_model"] = torch.nn.Parameter(
             torch.empty(d_model, d_model, device=device, dtype=dtype)
         )
-        self.Wo: Float[Tensor, "d_model d_model"] = torch.nn.Parameter(
+        self.Wo: Float[Tensor, "d_model d_v"] = torch.nn.Parameter(
             torch.empty(d_model, d_model, device=device, dtype=dtype)
         )
 
@@ -171,29 +171,29 @@ class MultiHeadSelfAttention(torch.nn.Module):
         token_positions: Float[Tensor, "... seq"] | None = None,
     ) -> Float[Tensor, "... d_model"]:
         Wq: Tensor = einx.rearrange(
-            "(h head_dim) d_model -> h head_dim d_model", self.Wq, h=self.num_heads
+            "(h hd_k) d_model -> h hd_k d_model", self.Wq, h=self.num_heads
         )  # type:ignore
         Wk: Tensor = einx.rearrange(
-            "(h head_dim) d_model -> h head_dim d_model", self.Wk, h=self.num_heads
+            "(h hd_k) d_model -> h hd_k d_model", self.Wk, h=self.num_heads
         )  # type:ignore
         Wv: Tensor = einx.rearrange(
-            "(h head_dim) d_model -> h head_dim d_model", self.Wv, h=self.num_heads
+            "(h hd_v) d_model -> h hd_v d_model", self.Wv, h=self.num_heads
         )  # type:ignore
 
-        Q = einx.dot("h head_dim d_model, ... seq d_model -> ... h seq head_dim", Wq, x)
-        K = einx.dot("h head_dim d_model, ... seq d_model -> ... h seq head_dim", Wk, x)
+        Q = einx.dot("h hd_k d_model, ... seq d_model -> ... h seq hd_k", Wq, x)
+        K = einx.dot("h hd_k d_model, ... seq d_model -> ... h seq hd_k", Wk, x)
         if self._rope_module is not None and token_positions is not None:
             Q = self._rope_module(Q, token_positions)
             K = self._rope_module(K, token_positions)
 
-        V = einx.dot("h head_dim d_model, ... seq d_model -> ... h seq head_dim", Wv, x)
+        V = einx.dot("h hd_v d_model, ... seq d_model -> ... h seq hd_v", Wv, x)
 
         seq_len = x.shape[-2]
         mask = torch.tril(torch.ones(seq_len, seq_len)).bool().unsqueeze(0).unsqueeze(0)
         mask = mask.to(Q.device)
 
         attn: Tensor = einx.rearrange(
-            "... h seq head_dim -> ... seq (h head_dim)",
+            "... h seq hd_k -> ... seq (h hd_k)",
             utils.scaled_dot_product_attention(Q, K, V, mask),
         )  # type:ignore
 

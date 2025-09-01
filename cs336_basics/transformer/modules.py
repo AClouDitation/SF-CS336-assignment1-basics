@@ -180,15 +180,17 @@ class MultiHeadSelfAttention(torch.nn.Module):
             "(h hd_v) d_model -> h hd_v d_model", self.Wv, h=self.num_heads
         )  # type:ignore
 
+        seq_len = x.shape[-2]
         Q = einx.dot("h hd_k d_model, ... seq d_model -> ... h seq hd_k", Wq, x)
         K = einx.dot("h hd_k d_model, ... seq d_model -> ... h seq hd_k", Wk, x)
-        if self._rope_module is not None and token_positions is not None:
+        if self._rope_module is not None:
+            if token_positions is None:
+                token_positions = torch.arange(seq_len, device=Q.device)
             Q = self._rope_module(Q, token_positions)
             K = self._rope_module(K, token_positions)
 
         V = einx.dot("h hd_v d_model, ... seq d_model -> ... h seq hd_v", Wv, x)
 
-        seq_len = x.shape[-2]
         mask = torch.tril(torch.ones(seq_len, seq_len)).bool().unsqueeze(0).unsqueeze(0)
         mask = mask.to(Q.device)
 
@@ -198,3 +200,35 @@ class MultiHeadSelfAttention(torch.nn.Module):
         )  # type:ignore
 
         return einx.dot("d_v d_model, ... seq d_model -> ... seq d_v", self.Wo, attn)
+
+
+class TransformerBlock(torch.nn.Module):
+
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        d_ff: int,
+        rope_module: RotaryPositionalEmbedding | None = None,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ): 
+        super().__init__()
+        self._attn = MultiHeadSelfAttention(
+            d_model=d_model,
+            num_heads=num_heads,
+            rope_module=rope_module,
+            device=device,
+            dtype=dtype,
+        )
+        self._ffn = SwiGLU(d_model=d_model, d_ff=d_ff, device=device, dtype=dtype)
+        self._norm_1 = RMSNorm(d_model=d_model, device=device, dtype=dtype)
+        self._norm_2 = RMSNorm(d_model=d_model, device=device, dtype=dtype)
+
+    def forward(
+        self, x: Float[Tensor, "... sdq d_model"]
+    ) -> Float[Tensor, "... seq d_model"]:
+        x += self._attn(self._norm_1(x))
+        x += self._ffn(self._norm_2(x))
+
+        return x

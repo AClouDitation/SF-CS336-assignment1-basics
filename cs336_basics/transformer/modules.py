@@ -17,14 +17,14 @@ class Linear(torch.nn.Module):
     ):
         super().__init__()
 
-        self.W: Float[Tensor, "d_out d_in"] = torch.nn.Parameter(
+        self.weight: Float[Tensor, "d_out d_in"] = torch.nn.Parameter(
             torch.empty(out_features, in_features, device=device, dtype=dtype)
         )
         std = (2 / (in_features + out_features)) ** 0.5
-        torch.nn.init.trunc_normal_(self.W, std=std, a=-3 * std, b=3 * std)
+        torch.nn.init.trunc_normal_(self.weight, std=std, a=-3 * std, b=3 * std)
 
     def forward(self, x: Float[Tensor, "... d_in"]) -> Float[Tensor, "... d_out"]:
-        return einx.dot("... d_in, d_out d_in -> ... d_out", x, self.W)
+        return einx.dot("... d_in, d_out d_in -> ... d_out", x, self.weight)
 
 
 class Embedding(torch.nn.Module):
@@ -59,7 +59,7 @@ class RMSNorm(torch.nn.Module):
         self._d_model = d_model
         self._eps = eps
         self._dtype = dtype
-        self.gain: Float[Tensor, "d_model"] = torch.nn.Parameter(
+        self.weight: Float[Tensor, "d_model"] = torch.nn.Parameter(
             torch.ones(d_model, device=device, dtype=dtype)
         )
 
@@ -67,7 +67,7 @@ class RMSNorm(torch.nn.Module):
         x = x.to(torch.float32)
         rms = (einx.sum("... d_model -> ...", x**2) / self._d_model + self._eps) ** 0.5
         x = einx.divide("... d_model, ... -> ... d_model", x, rms)
-        x = einx.multiply("... d_model, d_model -> ... d_model", x, self.gain)
+        x = einx.multiply("... d_model, d_model -> ... d_model", x, self.weight)
         return x.to(self._dtype)
 
 
@@ -81,24 +81,12 @@ class SwiGLU(torch.nn.Module):
         dtype: torch.dtype | None = None,
     ):
         super().__init__()
-        self.W1: Float[Tensor, "d_ff d_model"] = torch.nn.Parameter(
-            torch.empty(d_ff, d_model, device=device, dtype=dtype)
-        )
-        self.W2: Float[Tensor, "d_model d_ff"] = torch.nn.Parameter(
-            torch.empty(d_model, d_ff, device=device, dtype=dtype)
-        )
-        self.W3: Float[Tensor, "d_ff d_model"] = torch.nn.Parameter(
-            torch.empty(d_ff, d_model, device=device, dtype=dtype)
-        )
+        self.w1 = Linear(d_model, d_ff, device=device, dtype=dtype)
+        self.w2 = Linear(d_ff, d_model, device=device, dtype=dtype)
+        self.w3 = Linear(d_model, d_ff, device=device, dtype=dtype)
 
     def forward(self, x: Float[Tensor, "... d_model"]) -> Float[Tensor, "... d_model"]:
-        def silu(x: torch.Tensor) -> torch.Tensor:
-            return x * torch.sigmoid(x)
-
-        W1x = einx.dot("d_ff d_model, ... d_model -> ... d_ff", self.W1, x)
-        W3x = einx.dot("d_ff d_model, ... d_model -> ... d_ff", self.W3, x)
-        t = einx.multiply("... d_ff, ... d_ff -> ... d_ff", silu(W1x), W3x)
-        return einx.dot("d_model d_ff, ... d_ff -> ... d_model", self.W2, t)
+        return self.w2(utils.silu(self.w1(x)) * self.w3(x))
 
 
 class RotaryPositionalEmbedding(torch.nn.Module):
@@ -152,54 +140,42 @@ class MultiHeadSelfAttention(torch.nn.Module):
         self.num_heads = num_heads
         self._rope_module = rope_module
 
-        self.Wq: Float[Tensor, "d_k d_model"] = torch.nn.Parameter(
-            torch.empty(d_model, d_model, device=device, dtype=dtype)
-        )
-        self.Wk: Float[Tensor, "d_k d_model"] = torch.nn.Parameter(
-            torch.empty(d_model, d_model, device=device, dtype=dtype)
-        )
-        self.Wv: Float[Tensor, "d_v d_model"] = torch.nn.Parameter(
-            torch.empty(d_model, d_model, device=device, dtype=dtype)
-        )
-        self.Wo: Float[Tensor, "d_model d_v"] = torch.nn.Parameter(
-            torch.empty(d_model, d_model, device=device, dtype=dtype)
-        )
+        self.q_proj = Linear(d_model, d_model, device=device, dtype=dtype)
+        self.k_proj = Linear(d_model, d_model, device=device, dtype=dtype)
+        self.v_proj = Linear(d_model, d_model, device=device, dtype=dtype)
+        self.output_proj = Linear(d_model, d_model, device=device, dtype=dtype)
 
     def forward(
         self,
         x: Float[Tensor, "... seq d_model"],
         token_positions: Float[Tensor, "... seq"] | None = None,
     ) -> Float[Tensor, "... d_model"]:
-        Wq: Tensor = einx.rearrange(
-            "(h hd_k) d_model -> h hd_k d_model", self.Wq, h=self.num_heads
-        )  # type:ignore
-        Wk: Tensor = einx.rearrange(
-            "(h hd_k) d_model -> h hd_k d_model", self.Wk, h=self.num_heads
-        )  # type:ignore
-        Wv: Tensor = einx.rearrange(
-            "(h hd_v) d_model -> h hd_v d_model", self.Wv, h=self.num_heads
-        )  # type:ignore
+        Q: Float[Tensor, "... h seq hd_k"] = einx.rearrange(
+            "... seq (h hd_k) -> ... h seq hd_k", self.q_proj(x), h=self.num_heads
+        )  # type: ignore
+        K: Float[Tensor, "... h seq hd_k"] = einx.rearrange(
+            "... seq (h hd_k) -> ... h seq hd_k", self.k_proj(x), h=self.num_heads
+        )  # type: ignore
+        V: Float[Tensor, "... h seq hd_v"] = einx.rearrange(
+            "... seq (h hd_v) -> ... h seq hd_v", self.v_proj(x), h=self.num_heads
+        )  # type: ignore
 
         seq_len = x.shape[-2]
-        Q = einx.dot("h hd_k d_model, ... seq d_model -> ... h seq hd_k", Wq, x)
-        K = einx.dot("h hd_k d_model, ... seq d_model -> ... h seq hd_k", Wk, x)
         if self._rope_module is not None:
             if token_positions is None:
                 token_positions = torch.arange(seq_len, device=Q.device)
             Q = self._rope_module(Q, token_positions)
             K = self._rope_module(K, token_positions)
 
-        V = einx.dot("h hd_v d_model, ... seq d_model -> ... h seq hd_v", Wv, x)
-
         mask = torch.tril(torch.ones(seq_len, seq_len)).bool().unsqueeze(0).unsqueeze(0)
         mask = mask.to(Q.device)
 
-        attn: Tensor = einx.rearrange(
+        attn: Float[Tensor, "... seq d_model"] = einx.rearrange(
             "... h seq hd_k -> ... seq (h hd_k)",
             utils.scaled_dot_product_attention(Q, K, V, mask),
         )  # type:ignore
 
-        return einx.dot("d_v d_model, ... seq d_model -> ... seq d_v", self.Wo, attn)
+        return self.output_proj(attn)
 
 
 class TransformerBlock(torch.nn.Module):
@@ -214,21 +190,21 @@ class TransformerBlock(torch.nn.Module):
         dtype: torch.dtype | None = None,
     ): 
         super().__init__()
-        self._attn = MultiHeadSelfAttention(
+        self.attn = MultiHeadSelfAttention(
             d_model=d_model,
             num_heads=num_heads,
             rope_module=rope_module,
             device=device,
             dtype=dtype,
         )
-        self._ffn = SwiGLU(d_model=d_model, d_ff=d_ff, device=device, dtype=dtype)
-        self._norm_1 = RMSNorm(d_model=d_model, device=device, dtype=dtype)
-        self._norm_2 = RMSNorm(d_model=d_model, device=device, dtype=dtype)
+        self.ffn = SwiGLU(d_model=d_model, d_ff=d_ff, device=device, dtype=dtype)
+        self.ln1 = RMSNorm(d_model=d_model, device=device, dtype=dtype)
+        self.ln2 = RMSNorm(d_model=d_model, device=device, dtype=dtype)
 
     def forward(
         self, x: Float[Tensor, "... sdq d_model"]
     ) -> Float[Tensor, "... seq d_model"]:
-        x += self._attn(self._norm_1(x))
-        x += self._ffn(self._norm_2(x))
+        x += self.attn(self.ln1(x))
+        x += self.ffn(self.ln2(x))
 
         return x

@@ -33,7 +33,7 @@ def run_linear(
     """
 
     linear = modules.Linear(d_in, d_out)
-    linear.load_state_dict({"W": weights})
+    linear.load_state_dict({"weight": weights})
     return linear(in_features)
 
 
@@ -85,7 +85,9 @@ def run_swiglu(
     """
 
     fnn = modules.SwiGLU(d_model, d_ff)
-    fnn.load_state_dict({"W1": w1_weight, "W2": w2_weight, "W3": w3_weight})
+    fnn.load_state_dict(
+        {"w1.weight": w1_weight, "w2.weight": w2_weight, "w3.weight": w3_weight}
+    )
     return fnn(in_features)
 
 
@@ -145,10 +147,10 @@ def run_multihead_self_attention(
     multi_head_self_attn = modules.MultiHeadSelfAttention(d_model, num_heads)
     multi_head_self_attn.load_state_dict(
         {
-            "Wq": q_proj_weight,
-            "Wk": k_proj_weight,
-            "Wv": v_proj_weight,
-            "Wo": o_proj_weight,
+            "q_proj.weight": q_proj_weight,
+            "k_proj.weight": k_proj_weight,
+            "v_proj.weight": v_proj_weight,
+            "output_proj.weight": o_proj_weight,
         }
     )
     return multi_head_self_attn(in_features)
@@ -198,10 +200,10 @@ def run_multihead_self_attention_with_rope(
     )
     multi_head_self_attn.load_state_dict(
         {
-            "Wq": q_proj_weight,
-            "Wk": k_proj_weight,
-            "Wv": v_proj_weight,
-            "Wo": o_proj_weight,
+            "q_proj.weight": q_proj_weight,
+            "k_proj.weight": k_proj_weight,
+            "v_proj.weight": v_proj_weight,
+            "output_proj.weight": o_proj_weight,
         }
     )
     return multi_head_self_attn(in_features, token_positions)
@@ -307,19 +309,7 @@ def run_transformer_block(
         d_ff=d_ff,
         rope_module=rope,
     )
-    transformer_block.load_state_dict(
-        {
-            "_attn.Wq": weights["attn.q_proj.weight"],
-            "_attn.Wk": weights["attn.k_proj.weight"],
-            "_attn.Wv": weights["attn.v_proj.weight"],
-            "_attn.Wo": weights["attn.output_proj.weight"],
-            "_norm_1.gain": weights["ln1.weight"],
-            "_norm_2.gain": weights["ln2.weight"],
-            "_ffn.W1": weights["ffn.w1.weight"],
-            "_ffn.W2": weights["ffn.w2.weight"],
-            "_ffn.W3": weights["ffn.w3.weight"],
-        }
-    )
+    transformer_block.load_state_dict(weights)
     return transformer_block(in_features)
 
 
@@ -427,7 +417,7 @@ def run_rmsnorm(
     """
 
     rms_norm = modules.RMSNorm(d_model, eps)
-    rms_norm.load_state_dict({"gain": weights})
+    rms_norm.load_state_dict({"weight": weights})
     return rms_norm(in_features)
 
 
@@ -442,7 +432,7 @@ def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
         Float[Tensor,"..."]: of with the same shape as `in_features` with the output of applying
         SiLU to each element.
     """
-    raise NotImplementedError
+    return utils.silu(in_features)
 
 
 def run_get_batch(

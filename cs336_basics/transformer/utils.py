@@ -5,6 +5,10 @@ from torch import Tensor
 from jaxtyping import Float, Bool
 
 
+def silu(x: torch.Tensor) -> torch.Tensor:
+    return x * torch.sigmoid(x)
+
+
 def soft_max(x: Float[Tensor, " ..."], dim: int = -1) -> Float[Tensor, " ..."]:
     x = x - x.max(dim=dim, keepdim=True).values
     x = x.exp()

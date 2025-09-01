@@ -98,3 +98,43 @@ class SwiGLU(torch.nn.Module):
         W3x = einx.dot("d_ff d_model, ... d_model -> ... d_ff", self.W3, x)
         t = einx.multiply("... d_ff, ... d_ff -> ... d_ff", silu(W1x), W3x)
         return einx.dot("d_model d_ff, ... d_ff -> ... d_model", self.W2, t)
+
+
+class RotaryPositionalEmbedding(torch.nn.Module):
+
+    def __init__(
+        self,
+        theta: float,
+        d_k: int,
+        max_seq_len: int,
+        device: torch.device | None = None,
+    ):
+        assert d_k % 2 == 0, "d_k must be even for RoPE"
+
+        super().__init__()
+        seq = torch.arange(0, max_seq_len, device=device)
+        k = torch.arange(0, d_k, 2, device=device)
+        theta_mat = einx.dot(
+            "seq, half_d_k -> seq half_d_k", seq, 1 / theta ** (k / d_k)
+        )
+        cos = theta_mat.cos().repeat_interleave(2, dim=-1)
+        sin = theta_mat.sin().repeat_interleave(2, dim=-1)
+        self.register_buffer("cos", cos)
+        self.register_buffer("sin", sin)
+
+    def forward(
+        self,
+        x: Float[Tensor, "... seq_len d_k"],
+        token_positions: Float[Tensor, "... seq_len"],
+    ) -> Float[Tensor, "... seq_len d_k"]:
+
+        swapped_x = torch.stack([-x[..., 1::2], x[..., ::2]], dim=-1).reshape_as(x)
+        return einx.multiply(
+            "... seq_len d_k, seq_len d_k -> ... seq_len d_k",
+            x,
+            self.cos[token_positions],  # type: ignore
+        ) + einx.multiply(
+            "... seq_len d_k, seq_len d_k -> ... seq_len d_k",
+            swapped_x,
+            self.sin[token_positions],  # type: ignore
+        )

@@ -120,25 +120,16 @@ class RotaryPositionalEmbedding(torch.nn.Module):
         )
         cos = theta_mat.cos().repeat_interleave(2, dim=-1)
         sin = theta_mat.sin().repeat_interleave(2, dim=-1)
-        self.register_buffer("cos", cos)
-        self.register_buffer("sin", sin)
+        self.register_buffer("cos", cos, persistent=False)
+        self.register_buffer("sin", sin, persistent=False)
 
     def forward(
         self,
         x: Float[Tensor, "... seq_len d_k"],
         token_positions: Float[Tensor, "... seq_len"],
     ) -> Float[Tensor, "... seq_len d_k"]:
-
         swapped_x = torch.stack([-x[..., 1::2], x[..., ::2]], dim=-1).reshape_as(x)
-        return einx.multiply(
-            "... seq_len d_k, seq_len d_k -> ... seq_len d_k",
-            x,
-            self.cos[token_positions],  # type: ignore
-        ) + einx.multiply(
-            "... seq_len d_k, seq_len d_k -> ... seq_len d_k",
-            swapped_x,
-            self.sin[token_positions],  # type: ignore
-        )
+        return x * self.cos[token_positions] + swapped_x * self.sin[token_positions]  # type: ignore
 
 class MultiHeadSelfAttention(torch.nn.Module):
 
@@ -148,6 +139,7 @@ class MultiHeadSelfAttention(torch.nn.Module):
         num_heads: int,
         device: torch.device | None = None,
         dtype: torch.dtype | None = None,
+        rope_module: RotaryPositionalEmbedding | None = None,
     ):
         assert (
             d_model % num_heads == 0
@@ -155,11 +147,11 @@ class MultiHeadSelfAttention(torch.nn.Module):
             d_model,
             num_heads,
         )
+        super().__init__()
 
         self.num_heads = num_heads
-        self.head_dim = d_model // num_heads
+        self._rope_module = rope_module
 
-        super().__init__()
         self.Wq: Float[Tensor, "d_model d_model"] = torch.nn.Parameter(
             torch.empty(d_model, d_model, device=device, dtype=dtype)
         )
@@ -173,8 +165,11 @@ class MultiHeadSelfAttention(torch.nn.Module):
             torch.empty(d_model, d_model, device=device, dtype=dtype)
         )
 
-    def forward(self, x:Float[Tensor, "... seq d_model"]) -> Float[Tensor, "... d_model"]:
-
+    def forward(
+        self,
+        x: Float[Tensor, "... seq d_model"],
+        token_positions: Float[Tensor, "... seq"] | None = None,
+    ) -> Float[Tensor, "... d_model"]:
         Wq: Tensor = einx.rearrange(
             "(h head_dim) d_model -> h head_dim d_model", self.Wq, h=self.num_heads
         )  # type:ignore
@@ -187,6 +182,10 @@ class MultiHeadSelfAttention(torch.nn.Module):
 
         Q = einx.dot("h head_dim d_model, ... seq d_model -> ... h seq head_dim", Wq, x)
         K = einx.dot("h head_dim d_model, ... seq d_model -> ... h seq head_dim", Wk, x)
+        if self._rope_module is not None and token_positions is not None:
+            Q = self._rope_module(Q, token_positions)
+            K = self._rope_module(K, token_positions)
+
         V = einx.dot("h head_dim d_model, ... seq d_model -> ... h seq head_dim", Wv, x)
 
         seq_len = x.shape[-2]

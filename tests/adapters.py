@@ -61,7 +61,6 @@ def run_embedding(
     return embeddings(token_ids)
 
 
-
 def run_swiglu(
     d_model: int,
     d_ff: int,
@@ -153,7 +152,6 @@ def run_multihead_self_attention(
         }
     )
     return multi_head_self_attn(in_features)
-    # raise NotImplementedError
 
 
 def run_multihead_self_attention_with_rope(
@@ -193,7 +191,20 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+
+    rope = modules.RotaryPositionalEmbedding(theta, d_model // num_heads, max_seq_len)
+    multi_head_self_attn = modules.MultiHeadSelfAttention(
+        d_model, num_heads, rope_module=rope
+    )
+    multi_head_self_attn.load_state_dict(
+        {
+            "Wq": q_proj_weight,
+            "Wk": k_proj_weight,
+            "Wv": v_proj_weight,
+            "Wo": o_proj_weight,
+        }
+    )
+    return multi_head_self_attn(in_features, token_positions)
 
 
 def run_rope(
@@ -451,7 +462,6 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
         softmax normalizing the specified `dim`.
     """
     return utils.soft_max(in_features, dim=dim)
-
 
 
 def run_cross_entropy(

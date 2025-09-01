@@ -10,7 +10,7 @@ import torch
 from torch import Tensor
 from cs336_basics.bpe_tokenization import pretokenization, bpe_trainer, tokenizer
 from cs336_basics.bpe_tokenization import ENCODING
-from cs336_basics.transformer import modules
+from cs336_basics.transformer import modules, utils
 
 
 def run_linear(
@@ -439,7 +439,8 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
         Float[Tensor, "..."]: Tensor of with the same shape as `in_features` with the output of
         softmax normalizing the specified `dim`.
     """
-    raise NotImplementedError
+    return utils.soft_max(in_features, dim=dim)
+
 
 
 def run_cross_entropy(

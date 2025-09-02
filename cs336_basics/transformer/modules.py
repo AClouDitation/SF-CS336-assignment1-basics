@@ -167,7 +167,7 @@ class MultiHeadSelfAttention(torch.nn.Module):
             Q = self._rope_module(Q, token_positions)
             K = self._rope_module(K, token_positions)
 
-        mask = torch.tril(torch.ones(seq_len, seq_len)).bool().unsqueeze(0).unsqueeze(0)
+        mask = torch.tril(torch.ones(seq_len, seq_len)).bool()
         mask = mask.to(Q.device)
 
         attn: Float[Tensor, "... seq d_model"] = einx.rearrange(

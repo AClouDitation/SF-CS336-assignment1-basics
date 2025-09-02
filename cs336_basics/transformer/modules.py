@@ -2,7 +2,7 @@ import torch
 import einx
 
 from torch import Tensor
-from jaxtyping import Float
+from jaxtyping import Float, Int
 from cs336_basics.transformer import utils
 
 
@@ -37,13 +37,13 @@ class Embedding(torch.nn.Module):
         dtype: torch.dtype | None = None,
     ):
         super().__init__()
-        self.embedding: Float[Tensor, "d_vocab d_model"] = torch.nn.Parameter(
+        self.weight: Float[Tensor, "d_vocab d_model"] = torch.nn.Parameter(
             torch.empty(num_embeddings, embedding_dim, device=device, dtype=dtype)
         )
-        torch.nn.init.trunc_normal_(self.embedding, std=1, a=-3, b=3)
+        torch.nn.init.trunc_normal_(self.weight, std=1, a=-3, b=3)
 
-    def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
-        return self.embedding[token_ids]
+    def forward(self, token_ids: Int[Tensor, "... seq"]) -> Float[Tensor, "... seq d_model"]:
+        return self.weight[token_ids]
 
 
 class RMSNorm(torch.nn.Module):
@@ -205,6 +205,49 @@ class TransformerBlock(torch.nn.Module):
         self, x: Float[Tensor, "... sdq d_model"]
     ) -> Float[Tensor, "... seq d_model"]:
         x += self.attn(self.ln1(x))
-        x += self.ffn(self.ln2(x))
+        return x + self.ffn(self.ln2(x))
 
-        return x
+
+class TransformerLM(torch.nn.Module):
+
+    def __init__(
+        self,
+        vocab_size: int,
+        context_length: int,
+        num_layers: int,
+        d_model: int,
+        num_heads: int,
+        d_ff: int,
+        rope_theta: float,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ):
+        super().__init__()
+        self._max_seq_len = context_length
+        self._shared_rope = RotaryPositionalEmbedding(
+            rope_theta, d_model // num_heads, context_length, device=device
+        )
+        self.token_embeddings = Embedding(vocab_size, d_model, device=device, dtype=dtype)
+        self.layers = torch.nn.ModuleList(
+            TransformerBlock(
+                d_model=d_model,
+                num_heads=num_heads,
+                d_ff=d_ff,
+                rope_module=self._shared_rope,
+                device=device,
+                dtype=dtype,
+            )
+            for _ in range(num_layers)
+        )
+        self.ln_final = RMSNorm(d_model, device=device, dtype=dtype)
+        self.lm_head = Linear(d_model, vocab_size, device=device, dtype=dtype)
+
+    def forward(self, token_ids: Int[Tensor, "... seq"]) -> Float[Tensor, "... seq vocab_size"]:
+        assert token_ids.shape[-1] <= self._max_seq_len, (
+            "Input sequence length %d exceeds maximum %d" % (token_ids.shape[-1], self._max_seq_len)
+        )
+        x: Float[Tensor, "... seq d_model"] = self.token_embeddings(token_ids)
+        for layer in self.layers:
+            x = layer(x)
+
+        return self.lm_head(self.ln_final(x))

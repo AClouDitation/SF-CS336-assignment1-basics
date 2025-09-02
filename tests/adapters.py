@@ -57,7 +57,7 @@ def run_embedding(
     """
 
     embeddings = modules.Embedding(vocab_size, d_model)
-    embeddings.load_state_dict({"embedding": weights})
+    embeddings.load_state_dict({"weight": weights})
     return embeddings(token_ids)
 
 
@@ -392,7 +392,17 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    lm = modules.TransformerLM(
+        vocab_size=vocab_size,
+        context_length=context_length,
+        num_layers=num_layers,
+        d_model=d_model,
+        num_heads=num_heads,
+        d_ff=d_ff,
+        rope_theta=rope_theta,
+    )
+    lm.load_state_dict(weights)
+    return lm(in_indices)
 
 
 def run_rmsnorm(

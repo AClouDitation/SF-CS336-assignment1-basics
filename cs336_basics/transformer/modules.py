@@ -1,9 +1,13 @@
 import torch
 import einx
 
+from typing import TypeAlias
 from torch import Tensor
 from jaxtyping import Float, Int
 from cs336_basics.transformer import utils
+
+
+CostBreakdown: TypeAlias = dict[str, 'CostBreakdown'] | int
 
 
 class Linear(torch.nn.Module):
@@ -28,8 +32,11 @@ class Linear(torch.nn.Module):
     def forward(self, x: Float[Tensor, "... d_in"]) -> Float[Tensor, "... d_out"]:
         return einx.dot("... d_in, d_out d_in -> ... d_out", x, self.weight)
 
-    def total_flops(self, tensor_shape: torch.Size) -> int:
-        return 2 * tensor_shape[:-2].numel() * self._in_features * self._out_features
+    def forward_flops(self, tensor_shape: torch.Size) -> CostBreakdown:
+        return 2 * tensor_shape[:-1].numel() * self._in_features * self._out_features
+
+    def param_cnt(self) -> CostBreakdown:
+        return self.weight.numel()
 
 
 class Embedding(torch.nn.Module):
@@ -50,8 +57,11 @@ class Embedding(torch.nn.Module):
     def forward(self, token_ids: Int[Tensor, "... seq"]) -> Float[Tensor, "... seq d_model"]:
         return self.weight[token_ids]
     
-    def total_flops(self) -> int:
+    def forward_flops(self) -> CostBreakdown:
         return 0
+
+    def param_cnt(self) -> CostBreakdown:
+        return self.weight.numel()
 
 
 class RMSNorm(torch.nn.Module):
@@ -77,9 +87,12 @@ class RMSNorm(torch.nn.Module):
         x = einx.divide("... d_model, ... -> ... d_model", x, rms)
         x = einx.multiply("... d_model, d_model -> ... d_model", x, self.weight)
         return x.to(self._dtype)
-    
-    def total_flops(self, tensor_shape: torch.Size) -> int:
+
+    def forward_flops(self, tensor_shape: torch.Size) -> CostBreakdown:
         return 7 * tensor_shape.numel()
+
+    def param_cnt(self) -> CostBreakdown:
+        return self.weight.numel()
 
 
 class SwiGLU(torch.nn.Module):
@@ -99,12 +112,21 @@ class SwiGLU(torch.nn.Module):
 
     def forward(self, x: Float[Tensor, "... d_model"]) -> Float[Tensor, "... d_model"]:
         return self.w2(utils.silu(self.w1(x)) * self.w3(x))
+
+    def forward_flops(self, tensor_shape: torch.Size) -> CostBreakdown:
+        return {
+            "w1_proj": self.w1.forward_flops(tensor_shape),
+            "w2_proj": self.w2.forward_flops(tensor_shape),
+            "w3_proj": self.w3.forward_flops(tensor_shape),
+            "silu": 3 * tensor_shape.numel() * self._d_ff,
+        }
     
-    def total_flops(self, tensor_shape: torch.Size) -> int:
-        # 3 * projection: 6 * numel * d_ff
-        # + silu: 3 * numel * d_ff
-        # + elementwise multiply: numel * d_ff
-        return 10 * tensor_shape.numel() * self._d_ff
+    def param_cnt(self) -> CostBreakdown:
+        return {
+            "w1": self.w1.param_cnt(),
+            "w2": self.w2.param_cnt(),
+            "w3": self.w3.param_cnt(),
+        }
 
 
 class RotaryPositionalEmbedding(torch.nn.Module):
@@ -136,18 +158,18 @@ class RotaryPositionalEmbedding(torch.nn.Module):
     ) -> Float[Tensor, "... seq_len d_k"]:
         swapped_x = torch.stack([-x[..., 1::2], x[..., ::2]], dim=-1).reshape_as(x)
         return x * self.cos[token_positions] + swapped_x * self.sin[token_positions]  # type: ignore
-    
-    def total_flops(self, tensor_shape: torch.Size) -> int:
+
+    def forward_flops(self, tensor_shape: torch.Size) -> CostBreakdown:
         return 3 * tensor_shape.numel()
+
+    def param_cnt(self) -> CostBreakdown:
+        return {
+            "cos": self.cos.numel(),  # type: ignore
+            "sin": self.sin.numel(),  # type: ignore
+        }
 
 
 class MultiHeadSelfAttention(torch.nn.Module):
-    """Multi-Head Self Attention
-
-    FLOPS: 6 * batch_size * seq_len * d_model
-         + 2 * batch_size * seq_len ^ 2 * (2 * d_model + 6)
-         + 2 * batch_size * d_model ^ 3
-    """
 
     def __init__(
         self,
@@ -205,35 +227,38 @@ class MultiHeadSelfAttention(torch.nn.Module):
 
         return self.output_proj(attn)
 
-    def total_flops(self, tensor_shape: torch.Size) -> int:
-        total = (
-            self.q_proj.total_flops(tensor_shape)
-            + self.k_proj.total_flops(tensor_shape)
-            + self.v_proj.total_flops(tensor_shape)
-        )
+    def forward_flops(self, tensor_shape: torch.Size) -> CostBreakdown:
+        breakdown = {
+            "q_proj": self.q_proj.forward_flops(tensor_shape),
+            "k_proj": self.k_proj.forward_flops(tensor_shape),
+            "v_proj": self.v_proj.forward_flops(tensor_shape),
+            "output_proj": self.output_proj.forward_flops(tensor_shape),
+        }
 
         if self._rope_module is not None:
-            total += 2 * self._rope_module.total_flops(tensor_shape)
+            breakdown["q_rope"] = self._rope_module.forward_flops(tensor_shape)
+            breakdown["k_rope"] = self._rope_module.forward_flops(tensor_shape)
 
         d_model, seq_len = tensor_shape[-1], tensor_shape[-2]
-        batch_size = tensor_shape[:-3].numel() if len(tensor_shape) >= 3 else 1
+        batch_size = tensor_shape[:-2].numel() if len(tensor_shape) >= 3 else 1
         head_dim = d_model // self.num_heads
 
-        return (
-            self.q_proj.total_flops(tensor_shape)
-            + self.k_proj.total_flops(tensor_shape)
-            + self.v_proj.total_flops(tensor_shape)
-            + self.output_proj.total_flops(tensor_shape)
-            # RoPE
-            + 2 * self._rope_module.total_flops(tensor_shape)
-            if self._rope_module is not None
-            else 0
-            # Multi Head Self Attention
-            + 2 * batch_size * seq_len**2 * head_dim  #  Q @ K
-            + batch_size * seq_len**2  # scaling
-            + 5 * batch_size * seq_len**2  # soft max
-            + 2 * batch_size * seq_len**2 * head_dim  # V @ softmax
-        )
+        breakdown |= {
+            "attn_Q@K_proj": 2 * batch_size * seq_len**2 * head_dim,
+            "attn_scaling": batch_size * seq_len**2,
+            "attn_softmax": 5 * batch_size * seq_len**2,
+            "attn_V@softmax_proj": 2 * batch_size * seq_len**2 * head_dim
+        }
+
+        return breakdown
+    
+    def param_cnt(self) -> CostBreakdown:
+        return {
+            "Wq": self.q_proj.param_cnt(),
+            "Wk": self.k_proj.param_cnt(),
+            "Wv": self.v_proj.param_cnt(),
+            "Wo": self.output_proj.param_cnt(),
+        }
 
 
 class TransformerBlock(torch.nn.Module):
@@ -265,14 +290,22 @@ class TransformerBlock(torch.nn.Module):
         x += self.attn(self.ln1(x))
         return x + self.ffn(self.ln2(x))
 
-    def total_flops(self, tensor_shape: torch.Size) -> int:
-        return (
-            self.ln1.total_flops(tensor_shape)
-            + self.attn.total_flops(tensor_shape)
-            + self.ln2.total_flops(tensor_shape)
-            + self.ffn.total_flops(tensor_shape)
-            + 2 * tensor_shape.numel()  # Additions
-        )
+    def forward_flops(self, tensor_shape: torch.Size) -> CostBreakdown:
+        return {
+            "ln1": self.ln1.forward_flops(tensor_shape),
+            "attn": self.attn.forward_flops(tensor_shape),
+            "ln2": self.ln2.forward_flops(tensor_shape),
+            "ffn": self.ffn.forward_flops(tensor_shape),
+            "additions": 2 * tensor_shape.numel(),
+        }
+
+    def param_cnt(self) -> CostBreakdown:
+        return {
+            "ln1": self.ln1.param_cnt(),
+            "attn": self.attn.param_cnt(),
+            "ln2": self.ln2.param_cnt(),
+            "ffn": self.ffn.param_cnt(),
+        }
 
 
 class TransformerLM(torch.nn.Module):
@@ -319,10 +352,22 @@ class TransformerLM(torch.nn.Module):
 
         return self.lm_head(self.ln_final(x))
 
-    def total_flops(self, tensor_shape: torch.Size) -> int:
-        return (
-            self.token_embeddings.total_flops()
-            + sum(layer.total_flops(tensor_shape) for layer in self.layers)  # type: ignore
-            + self.ln_final.total_flops(tensor_shape)
-            + self.lm_head.total_flops(tensor_shape)
-        )
+    def forward_flops(self, tensor_shape: torch.Size) -> CostBreakdown:
+        return {
+            "token_embeddings": self.token_embeddings.forward_flops(),
+            "ln_final": self.ln_final.forward_flops(tensor_shape),
+            "lm_head_proj": self.lm_head.forward_flops(tensor_shape),
+        } | {
+            f"layers[{i}]": layer.forward_flops(tensor_shape)  # type: ignore
+            for i, layer in enumerate(self.layers)
+        }
+
+    def param_cnt(self) -> CostBreakdown:
+        return {
+            "token_embeddings": self.token_embeddings.param_cnt(),
+            "ln_final": self.ln_final.param_cnt(),
+            "lm_head": self.lm_head.param_cnt(),
+        } | {
+            f"layers[{i}]": layer.param_cnt()  # type: ignore
+            for i, layer in enumerate(self.layers)
+        }

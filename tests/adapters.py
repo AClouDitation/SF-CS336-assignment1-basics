@@ -11,7 +11,7 @@ from torch import Tensor
 from cs336_basics.bpe_tokenization import pretokenization, bpe_trainer, tokenizer
 from cs336_basics.bpe_tokenization import ENCODING
 from cs336_basics.transformer import modules, utils
-from cs336_basics.training import adam_w
+from cs336_basics.training import adam_w, scheduling
 
 
 def run_linear(
@@ -547,7 +547,9 @@ def run_get_lr_cosine_schedule(
     Returns:
         Learning rate at the given iteration under the specified schedule.
     """
-    raise NotImplementedError
+    return scheduling.lr_cosine_schedule(
+        it, max_learning_rate, min_learning_rate, warmup_iters, cosine_cycle_iters
+    )
 
 
 def run_save_checkpoint(

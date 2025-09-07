@@ -1,4 +1,7 @@
 import math
+import torch
+
+from typing import Iterable
 
 
 def lr_cosine_schedule(
@@ -17,3 +20,12 @@ def lr_cosine_schedule(
         return min_learning_rate + coeff * (max_learning_rate - min_learning_rate)
     else:
         return min_learning_rate
+
+
+def gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float):
+    grads = torch.cat([p.grad.flatten() for p in parameters if p.grad is not None])
+    l2_norm = grads.norm()
+    if l2_norm >= max_l2_norm:
+        for p in parameters:
+            if p.grad is not None:
+                p.grad = p.grad * (max_l2_norm / (l2_norm + 1e-6))

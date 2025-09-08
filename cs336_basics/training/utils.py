@@ -1,5 +1,7 @@
 import math
 import torch
+import numpy as np
+import random
 
 from typing import Iterable
 
@@ -29,3 +31,23 @@ def gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: flo
         for p in parameters:
             if p.grad is not None:
                 p.grad = p.grad * (max_l2_norm / (l2_norm + 1e-6))
+
+
+def get_batch(
+    x: np.ndarray[tuple[int], np.dtype[np.int32]],
+    batch_size: int,
+    seq_len: int,
+    device: torch.device | str,
+):
+    starting_indices = [
+        random.randint(0, len(x) - seq_len - 1) for _ in range(batch_size)
+    ]
+    sequences = torch.LongTensor(
+        [x[idx : idx + seq_len] for idx in starting_indices],
+        device=device,
+    )
+    targets = torch.LongTensor(
+        [x[idx + 1 : idx + seq_len + 1] for idx in starting_indices],
+        device=device,
+    )
+    return sequences, targets

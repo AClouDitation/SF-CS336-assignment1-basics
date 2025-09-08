@@ -1,9 +1,10 @@
+import os
 import math
 import torch
 import numpy as np
 import random
 
-from typing import Iterable
+from typing import Iterable, BinaryIO, IO
 
 
 def lr_cosine_schedule(
@@ -51,3 +52,36 @@ def get_batch(
         device=device,
     )
     return sequences, targets
+
+
+def save_ckpt(
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    iteration: int,
+    out: str | os.PathLike | BinaryIO | IO[bytes],
+):
+    obj = {
+        "model" : model.state_dict(),
+        "optimizer" : optimizer.state_dict(),
+        "iteration" : iteration,
+    }
+
+    torch.save(obj, out)
+
+
+def load_ckpt(
+    src: str | os.PathLike | BinaryIO | IO[bytes],
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+) -> int:
+    obj = torch.load(src)
+    assert (
+        "model" in obj and "optimizer" in obj and "iteration" in obj
+    ), "Checkpoint file is missing required keys."
+    assert isinstance(
+        obj["iteration"], int
+    ), "Iteration in checkpoint is not an integer."
+
+    model.load_state_dict(obj["model"])
+    optimizer.load_state_dict(obj["optimizer"])
+    return obj["iteration"]

@@ -35,7 +35,7 @@ def gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: flo
 
 
 def get_batch(
-    x: np.ndarray[tuple[int], np.dtype[np.int32]],
+    x: np.ndarray[tuple[int], np.dtype[np.uint32]],
     batch_size: int,
     seq_len: int,
     device: torch.device | str,

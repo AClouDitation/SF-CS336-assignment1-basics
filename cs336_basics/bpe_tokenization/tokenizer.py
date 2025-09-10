@@ -1,10 +1,11 @@
 import json
 import os
 import heapq
+import numpy as np
 
 from base64 import b64decode
 from cs336_basics.bpe_tokenization import pretokenization, ENCODING
-from typing import Iterable, Iterator
+from typing import Iterable, Iterator, Any
 
 
 class Node:
@@ -24,7 +25,7 @@ class Node:
     def __lt__(self, other: "Node") -> bool:
         return id(self) < id(other)
 
-    
+
 class Tokenizer:
 
     def __init__(
@@ -47,6 +48,10 @@ class Tokenizer:
 
         self._merges = merges
         self._pretoken_cache: dict[bytes, list[int]] = {}
+    
+    @property
+    def vocab_size(self) -> int:
+        return len(self._vocab)
 
     @classmethod
     def from_files(
@@ -189,6 +194,27 @@ class Tokenizer:
     def decode(self, token_ids: list[int]) -> str:
         tokens = [self._vocab[i] for i in token_ids]
         return b"".join(tokens).decode(ENCODING, errors="replace")
+
+    def encode_file(
+        self,
+        input_path: str | os.PathLike,
+        output_path: str | os.PathLike,
+    ):
+        num_processes = os.cpu_count() or 1
+        with open(input_path, "rb") as f_in:
+            boundaries = pretokenization._find_chunk_boundaries(
+                f_in, num_processes, list(self._special_tokens)
+            )
+
+        def get_file_chunk() -> Iterator[str]:
+            for start, end in zip(boundaries[:-1], boundaries[1:]):
+                with open(input_path, "r") as f_in:
+                    f_in.seek(start)
+                    yield f_in.read(end - start)
+
+        output = np.memmap(output_path, mode="w+", dtype=np.uint32)
+        for chunk in get_file_chunk():
+            np.append(output, self.encode(chunk))
 
 
 if __name__ == "__main__":

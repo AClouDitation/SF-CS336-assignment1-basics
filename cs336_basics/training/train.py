@@ -1,13 +1,11 @@
-import argparse
 import os
 import pathlib
 import numpy as np
 import torch
 import wandb
 
-from typing import Callable, Iterable, Any
+from typing import Any
 from jaxtyping import Float
-from functools import partial
 from cs336_basics.bpe_tokenization import tokenizer as bpe_tokenizer
 from cs336_basics.transformer import modules
 from cs336_basics.transformer import utils

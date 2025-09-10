@@ -14,10 +14,8 @@ from cs336_basics.training import training_config, adam_w, utils as training_uti
 _CKPT_FILE_NAME = "model.pth"
 
 
-def get_tokenizer():
-    return bpe_tokenizer.Tokenizer.from_files(
-        vocab_file="", merges_file="", special_tokens=["<|endoftext|>"]
-    )
+def get_tokenizer(config: training_config.TrainingConfig.TokenizerConfig):
+    return bpe_tokenizer.Tokenizer.from_files(**config._asdict())
 
 
 def preprocess_data(
@@ -174,7 +172,7 @@ def main():
     config = training_config.get_config()
     wandb_run = wandb.init(entity="aclouditation", project="cs336", config={})
 
-    tokenizer = get_tokenizer()
+    tokenizer = get_tokenizer(config.tokenizer)
     training_data = preprocess_data(
         tokenizer,
         input_path=config.trainer.training_dataset_file,

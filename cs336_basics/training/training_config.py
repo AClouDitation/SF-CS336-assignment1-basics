@@ -6,6 +6,11 @@ from typing import NamedTuple
 
 parser = argparse.ArgumentParser(description="Train a transformer language model.")
 
+# Tokenizer configs
+parser.add_argument("--vocab_file", type=str, required=True)
+parser.add_argument("--merges_file", type=str, required=True)
+parser.add_argument("--special_tokens", type=list, default=["<|endoftext|>"])
+
 # Trainer configs
 parser.add_argument("--tmp_dir", type=str, default="~/learning/SF_CS_336/data/tmp")
 parser.add_argument("--ckpt_dir", type=str, default="~/learning/SF_CS_336/data/ckpts")
@@ -38,6 +43,11 @@ parser.add_argument("--adamw_weight_decay", type=float, default=0.01)
 
 
 class TrainingConfig(NamedTuple):
+    class TokenizerConfig(NamedTuple):
+        vocab_file: pathlib.Path
+        merges_file: pathlib.Path
+        special_tokens: list[str]
+
     class TrainerConfig(NamedTuple):
         tmp_dir: pathlib.Path
         ckpt_dir: pathlib.Path
@@ -69,6 +79,7 @@ class TrainingConfig(NamedTuple):
         warmup_iters: int
         max_grad_l2_norm: float
 
+    tokenizer: TokenizerConfig
     trainer: TrainerConfig
     model: ModelConfig
     adamw: AdamWConfig
@@ -78,6 +89,12 @@ class TrainingConfig(NamedTuple):
 
 def get_config() -> TrainingConfig:
     args = parser.parse_args()
+
+    vocab_file = pathlib.Path(args.vocab_file)
+    assert vocab_file.exists(), f"Vocabulary file {vocab_file} does not exist."
+
+    merges_file = pathlib.Path(args.merges_file)
+    assert merges_file.exists(), f"Merges file {merges_file} does not exist."
 
     tmp_dir = pathlib.Path(args.tmp_dir)
     tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -96,6 +113,11 @@ def get_config() -> TrainingConfig:
     ), f"Validation dataset file {validation_dataset_file} does not exist."
 
     return TrainingConfig(
+        tokenizer=TrainingConfig.TokenizerConfig(
+            vocab_file=vocab_file,
+            merges_file=merges_file,
+            special_tokens=args.special_tokens,
+        ),
         trainer=TrainingConfig.TrainerConfig(
             tmp_dir=tmp_dir,
             ckpt_dir=ckpt_dir,

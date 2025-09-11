@@ -52,6 +52,10 @@ class Tokenizer:
     @property
     def vocab_size(self) -> int:
         return len(self._vocab)
+    
+    @property
+    def special_tokens(self) -> list[bytes]:
+        return list(self._special_tokens)
 
     @classmethod
     def from_files(
@@ -214,7 +218,9 @@ class Tokenizer:
 
         output = np.memmap(output_path, mode="w+", dtype=np.uint32)
         for chunk in get_file_chunk():
-            np.append(output, self.encode(chunk))
+            output.resize(len(output) + len(chunk))
+            output[-len(chunk):] = self.encode(chunk)
+        output.flush()
 
 
 if __name__ == "__main__":

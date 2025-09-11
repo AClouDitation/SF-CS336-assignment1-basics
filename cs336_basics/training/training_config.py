@@ -15,8 +15,11 @@ parser.add_argument("--special_tokens", type=list, default=["<|endoftext|>"])
 parser.add_argument("--tmp_dir", type=str, default="~/learning/SF_CS_336/data/tmp")
 parser.add_argument("--ckpt_dir", type=str, default="~/learning/SF_CS_336/data/ckpts")
 parser.add_argument("--ckpt_interval", type=int, default=1000)
-parser.add_argument("--training_dataset_file", type=str, required=True)
-parser.add_argument("--validation_dataset_file", type=str, required=True)
+parser.add_argument("--training_dataset_file", type=str, default=None)
+parser.add_argument("--validation_dataset_file", type=str, default=None)
+parser.add_argument("--huggingface_dataset", type=str, default=None)
+parser.add_argument("--training_split", type=str, default="train")
+parser.add_argument("--validation_split", type=str, default="validation")
 parser.add_argument("--from_ckpt", type=str, default=None)
 parser.add_argument("--steps", type=int, default=10_000)
 parser.add_argument("--use_memmap", action="store_true")
@@ -52,8 +55,11 @@ class TrainingConfig(NamedTuple):
         tmp_dir: pathlib.Path
         ckpt_dir: pathlib.Path
         ckpt_interval: int
-        training_dataset_file: pathlib.Path
-        validation_dataset_file: pathlib.Path
+        training_dataset_file: pathlib.Path | None
+        validation_dataset_file: pathlib.Path | None
+        huggingface_dataset: str | None
+        training_split: str
+        validation_split: str
         from_ckpt: str | None
         steps: int
         use_memmap: bool
@@ -86,7 +92,6 @@ class TrainingConfig(NamedTuple):
     hyperparam: HyperParameters
 
 
-
 def get_config() -> TrainingConfig:
     args = parser.parse_args()
 
@@ -102,15 +107,23 @@ def get_config() -> TrainingConfig:
     ckpt_dir = pathlib.Path(args.ckpt_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    training_dataset_file = pathlib.Path(args.training_dataset_file)
-    assert (
-        training_dataset_file.exists()
-    ), f"Training dataset file {training_dataset_file} does not exist."
+    if args.training_dataset_file is not None and args.validation_dataset_file is not None:
+        training_dataset_file = pathlib.Path(args.training_dataset_file)
+        assert (
+            training_dataset_file.exists()
+        ), f"Training dataset file {training_dataset_file} does not exist."
 
-    validation_dataset_file = pathlib.Path(args.validation_dataset_file)
-    assert (
-        validation_dataset_file.exists()
-    ), f"Validation dataset file {validation_dataset_file} does not exist."
+        validation_dataset_file = pathlib.Path(args.validation_dataset_file)
+        assert (
+            validation_dataset_file.exists()
+        ), f"Validation dataset file {validation_dataset_file} does not exist."
+    elif args.huggingface_dataset is not None:
+        training_dataset_file = None
+        validation_dataset_file = None
+    else:
+        raise ValueError(
+            "Either --training_dataset_file and --validation_dataset_file or --huggingface_dataset must be provided."
+        )
 
     return TrainingConfig(
         tokenizer=TrainingConfig.TokenizerConfig(
@@ -124,6 +137,9 @@ def get_config() -> TrainingConfig:
             ckpt_interval=args.ckpt_interval,
             training_dataset_file=training_dataset_file,
             validation_dataset_file=validation_dataset_file,
+            huggingface_dataset=args.huggingface_dataset,
+            training_split=args.training_split,
+            validation_split=args.validation_split,
             from_ckpt=args.from_ckpt,
             steps=args.steps,
             use_memmap=args.use_memmap,

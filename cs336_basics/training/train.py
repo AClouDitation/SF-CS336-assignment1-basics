@@ -3,15 +3,18 @@ import pathlib
 import numpy as np
 import torch
 import wandb
+import datasets
 
-from typing import Any
+from typing import Any, TypeAlias
 from jaxtyping import Float
-from cs336_basics.bpe_tokenization import tokenizer as bpe_tokenizer
+from cs336_basics.bpe_tokenization import ENCODING, tokenizer as bpe_tokenizer
 from cs336_basics.transformer import modules
 from cs336_basics.transformer import utils
 from cs336_basics.training import training_config, adam_w, utils as training_utils
 
 _CKPT_FILE_NAME = "model.pth"
+
+Dataset: TypeAlias = datasets.arrow_dataset.Dataset
 
 
 def get_tokenizer(config: training_config.TrainingConfig.TokenizerConfig):
@@ -38,6 +41,41 @@ def preprocess_data(
 
     with open(input_path, "r") as f:
         return np.array(tokenizer.encode(f.read()), dtype=np.uint32)
+
+
+def process_dataset(
+    tokenizer: bpe_tokenizer.Tokenizer,
+    split: str,
+    dataset: Dataset,
+    output_dir: str | os.PathLike,
+    use_memmap: bool,
+) -> np.ndarray[tuple[int], np.dtype[np.uint32]]:
+
+    separator = tokenizer.special_tokens[0] if tokenizer.special_tokens else b""
+    token_ids_iter = tokenizer.encode_iterable(
+        f"{example["text"]}{separator}".encode(ENCODING) for example in dataset  # type: ignore
+    )
+    if use_memmap:
+        output_path = os.path.join(
+            output_dir, f"{dataset.info.dataset_name}_{split}.npy"
+        )
+        output = np.memmap(output_path, mode="w+", dtype=np.uint32)
+
+        buffer = []
+        chunk_size = 4096
+        for token_id in token_ids_iter:
+            buffer.append(token_id)
+            if len(buffer) == chunk_size:
+                output.resize(len(output) + chunk_size)
+                output[-chunk_size:] = buffer
+                buffer = []
+        if buffer:
+            output.resize(len(output) + len(buffer))
+            output[-len(buffer):] = buffer
+        output.flush()
+        return np.memmap(output_path, mode="r", dtype=np.uint32)
+
+    return np.array(list(token_ids_iter), dtype=np.uint32)
 
 
 def find_ckpt(ckpt_dir: str | os.PathLike, from_ckpt: str) -> tuple[os.PathLike, int]:
@@ -170,22 +208,56 @@ class Trainer:
 
 def main():
     config = training_config.get_config()
-    wandb_run = wandb.init(entity="aclouditation", project="cs336", config={})
+    wandb_run = wandb.init(
+        entity="aclouditation", project="cs336-toy-model", config=config._asdict()
+    )
 
     tokenizer = get_tokenizer(config.tokenizer)
-    training_data = preprocess_data(
-        tokenizer,
-        input_path=config.trainer.training_dataset_file,
-        output_dir=os.path.join(config.trainer.tmp_dir, "tokenized_data"),
-        use_memmap=config.trainer.use_memmap,
-    )
+    if config.trainer.training_dataset_file and config.trainer.validation_dataset_file: 
+        training_data = preprocess_data(
+            tokenizer,
+            input_path=config.trainer.training_dataset_file,
+            output_dir=os.path.join(config.trainer.tmp_dir, "tokenized_data"),
+            use_memmap=config.trainer.use_memmap,
+        )
 
-    validation_data = preprocess_data(
-        tokenizer,
-        input_path=config.trainer.validation_dataset_file,
-        output_dir=os.path.join(config.trainer.tmp_dir, "tokenized_data"),
-        use_memmap=config.trainer.use_memmap,
-    )
+        validation_data = preprocess_data(
+            tokenizer,
+            input_path=config.trainer.validation_dataset_file,
+            output_dir=os.path.join(config.trainer.tmp_dir, "tokenized_data"),
+            use_memmap=config.trainer.use_memmap,
+        )
+    elif dataset_path := config.trainer.huggingface_dataset:
+        training_dataset = datasets.load_dataset(
+            dataset_path,
+            num_proc=os.cpu_count() or 1,
+            split=config.trainer.training_split,
+        )
+        validation_dataset = datasets.load_dataset(
+            dataset_path,
+            num_proc=os.cpu_count() or 1,
+            split=config.trainer.validation_split,
+        )
+
+        assert isinstance(training_dataset, Dataset)
+        assert isinstance(validation_dataset, Dataset)
+
+        training_data = process_dataset(
+            tokenizer,
+            split=config.trainer.training_split,
+            dataset=training_dataset,
+            output_dir=os.path.join(config.trainer.tmp_dir, "tokenized_data"),
+            use_memmap=config.trainer.use_memmap,
+        )
+        validation_data = process_dataset(
+            tokenizer,
+            split=config.trainer.validation_split,
+            dataset=validation_dataset,
+            output_dir=os.path.join(config.trainer.tmp_dir, "tokenized_data"),
+            use_memmap=config.trainer.use_memmap,
+        )
+    else:
+        raise ValueError("No training or validation data provided.")
 
     trainer = Trainer(config, tokenizer, wandb_run=wandb_run)
     trainer.train(training_data, validation_data)

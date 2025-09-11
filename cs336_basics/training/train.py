@@ -198,7 +198,6 @@ class Trainer:
                 )
                 validation_seq, validation_target = self._get_batch(validation_data)
                 losses = self._validate(validation_seq, validation_target)
-                # TODO: log to wandb
                 self._wandb_log(
                     {"validation/loss": losses, "step": self._it}
                 )

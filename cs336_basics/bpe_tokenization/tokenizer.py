@@ -6,6 +6,7 @@ import numpy as np
 from base64 import b64decode
 from cs336_basics.bpe_tokenization import pretokenization, ENCODING
 from typing import Iterable, Iterator, Any
+from cs336_basics.common import memmap_utils
 
 
 class Node:
@@ -48,11 +49,11 @@ class Tokenizer:
 
         self._merges = merges
         self._pretoken_cache: dict[bytes, list[int]] = {}
-    
+
     @property
     def vocab_size(self) -> int:
         return len(self._vocab)
-    
+
     @property
     def special_tokens(self) -> list[bytes]:
         return list(self._special_tokens)
@@ -203,7 +204,7 @@ class Tokenizer:
         self,
         input_path: str | os.PathLike,
         output_path: str | os.PathLike,
-    ):
+    ) -> np.memmap[tuple[int], np.dtype[np.uint32]]:
         num_processes = os.cpu_count() or 1
         with open(input_path, "rb") as f_in:
             boundaries = pretokenization._find_chunk_boundaries(
@@ -216,11 +217,12 @@ class Tokenizer:
                     f_in.seek(start)
                     yield f_in.read(end - start)
 
-        output = np.memmap(output_path, mode="w+", dtype=np.uint32)
-        for chunk in get_file_chunk():
-            output.resize(len(output) + len(chunk))
-            output[-len(chunk):] = self.encode(chunk)
-        output.flush()
+        for i, chunk in enumerate(get_file_chunk()):
+            np.save(
+                memmap_utils.get_path_for_shard(output_path, i),
+                np.array(self.encode(chunk), dtype=np.uint32),
+            )
+        return memmap_utils.merge_memmaps(output_path, dtype=np.uint32)
 
 
 if __name__ == "__main__":

@@ -1,20 +1,27 @@
 import os
+import sys
 import pathlib
 import numpy as np
 import torch
 import wandb
 import datasets
+import logging
+import progressbar
 
 from typing import Any, TypeAlias
 from jaxtyping import Float
 from cs336_basics.bpe_tokenization import ENCODING, tokenizer as bpe_tokenizer
-from cs336_basics.transformer import modules
-from cs336_basics.transformer import utils
+from cs336_basics.transformer import modules, utils
 from cs336_basics.training import training_config, adam_w, utils as training_utils
+from cs336_basics.common import memmap_utils
 
 _CKPT_FILE_NAME = "model.pth"
 
 Dataset: TypeAlias = datasets.arrow_dataset.Dataset
+
+logging.basicConfig(stream=sys.stdout)
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def get_tokenizer(config: training_config.TrainingConfig.TokenizerConfig):
@@ -33,7 +40,7 @@ def preprocess_data(
         output_path = os.path.join(output_dir, f"{fn}.npy")
 
         if not pathlib.Path(output_path).exists():
-            tokenizer.encode_file(
+            return tokenizer.encode_file(
                 input_path=input_path,
                 output_path=output_path,
             )
@@ -51,29 +58,37 @@ def process_dataset(
     use_memmap: bool,
 ) -> np.ndarray[tuple[int], np.dtype[np.uint32]]:
 
-    separator = tokenizer.special_tokens[0] if tokenizer.special_tokens else b""
+    separator = ""
+    if tokenizer.special_tokens:
+        separator = tokenizer.special_tokens[0].decode(ENCODING)
+
     token_ids_iter = tokenizer.encode_iterable(
-        f"{example["text"]}{separator}".encode(ENCODING) for example in dataset  # type: ignore
+        f"{example["text"]}{separator}" for example in dataset  # type: ignore
     )
     if use_memmap:
         output_path = os.path.join(
             output_dir, f"{dataset.info.dataset_name}_{split}.npy"
         )
-        output = np.memmap(output_path, mode="w+", dtype=np.uint32)
 
         buffer = []
-        chunk_size = 4096
-        for token_id in token_ids_iter:
+        chunk_size = 256 * 1024 * 1024  # 256 tokens * 4 bytes/token = 1GiB
+        shard = 0
+        for token_id in progressbar.progressbar(token_ids_iter):
             buffer.append(token_id)
             if len(buffer) == chunk_size:
-                output.resize(len(output) + chunk_size)
-                output[-chunk_size:] = buffer
-                buffer = []
+                np.save(
+                    memmap_utils.get_path_for_shard(output_path, shard),
+                    np.array(buffer, dtype=np.uint32),
+                )
+                buffer.clear()
+                shard += 1
+
         if buffer:
-            output.resize(len(output) + len(buffer))
-            output[-len(buffer):] = buffer
-        output.flush()
-        return np.memmap(output_path, mode="r", dtype=np.uint32)
+            np.save(
+                memmap_utils.get_path_for_shard(output_path, shard),
+                np.array(buffer, dtype=np.uint32),
+            )
+        return memmap_utils.merge_memmaps(output_path, dtype=np.uint32)
 
     return np.array(list(token_ids_iter), dtype=np.uint32)
 
@@ -99,7 +114,7 @@ class Trainer:
         self,
         config: training_config.TrainingConfig,
         tokenizer: bpe_tokenizer.Tokenizer,
-        wandb_run: wandb.Run | None = None,
+        wandb_run = None,
     ):
         self._config = config
         self._it = 1
@@ -111,9 +126,9 @@ class Trainer:
             ckpt_path, ckpt_step = find_ckpt(
                 config.trainer.ckpt_dir, config.trainer.from_ckpt
             )
-            print(f"Loading checkpoint from {ckpt_path}...")
+            logger.info(f"Loading checkpoint from {ckpt_path}...")
             training_utils.load_ckpt(ckpt_path, self._lm, self._opt)
-            print("Model loaded.")
+            logger.info("Model loaded.")
             self._it += ckpt_step
 
         self._total_steps = self._it + config.trainer.steps
@@ -208,29 +223,50 @@ class Trainer:
 def main():
     config = training_config.get_config()
     wandb_run = wandb.init(
-        entity="aclouditation", project="cs336-toy-model", config=config._asdict()
-    )
+        entity="actoy", project="toymodel", config=config._asdict()
+    ) if config.use_wandb else None
 
+    logger.info("Loading tokenizer with config: %s", config.tokenizer)
     tokenizer = get_tokenizer(config.tokenizer)
+    logger.info("Tokenizer loaded.")
+
+    encoded_data_output_dir = config.trainer.tmp_dir / "tokenized_data"
+    os.makedirs(encoded_data_output_dir, exist_ok=True)
+
     if config.trainer.training_dataset_file and config.trainer.validation_dataset_file: 
+        logger.info("Loading training data from %s", config.trainer.training_dataset_file)
         training_data = preprocess_data(
             tokenizer,
             input_path=config.trainer.training_dataset_file,
-            output_dir=os.path.join(config.trainer.tmp_dir, "tokenized_data"),
+            output_dir=encoded_data_output_dir,
             use_memmap=config.trainer.use_memmap,
         )
+        logger.info("Training data loaded, size: %d tokens.", len(training_data))
 
+        logger.info("Loading validation data from %s", config.trainer.validation_dataset_file)
         validation_data = preprocess_data(
             tokenizer,
             input_path=config.trainer.validation_dataset_file,
-            output_dir=os.path.join(config.trainer.tmp_dir, "tokenized_data"),
+            output_dir=encoded_data_output_dir,
             use_memmap=config.trainer.use_memmap,
         )
+        logger.info("Validation data loaded, size: %d tokens.", len(validation_data))
     elif dataset_path := config.trainer.huggingface_dataset:
+        logger.info(
+            "Loading dataset %s:%s from Hugging Face",
+            dataset_path,
+            config.trainer.training_split,
+        )
         training_dataset = datasets.load_dataset(
             dataset_path,
             num_proc=os.cpu_count() or 1,
             split=config.trainer.training_split,
+        )
+
+        logger.info(
+            "Loading dataset %s:%s from Hugging Face",
+            dataset_path,
+            config.trainer.validation_split,
         )
         validation_dataset = datasets.load_dataset(
             dataset_path,
@@ -241,24 +277,32 @@ def main():
         assert isinstance(training_dataset, Dataset)
         assert isinstance(validation_dataset, Dataset)
 
+        logger.info("Tokenizing training data...")
         training_data = process_dataset(
             tokenizer,
             split=config.trainer.training_split,
             dataset=training_dataset,
-            output_dir=os.path.join(config.trainer.tmp_dir, "tokenized_data"),
+            output_dir=encoded_data_output_dir,
             use_memmap=config.trainer.use_memmap,
         )
+        logger.info("Training data tokenized, size: %d tokens.", len(training_data))
+
+        logger.info("Tokenizing validation data...")
         validation_data = process_dataset(
             tokenizer,
             split=config.trainer.validation_split,
             dataset=validation_dataset,
-            output_dir=os.path.join(config.trainer.tmp_dir, "tokenized_data"),
+            output_dir=encoded_data_output_dir,
             use_memmap=config.trainer.use_memmap,
         )
+        logger.info("Validation data tokenized, size: %d tokens.", len(validation_data))
     else:
         raise ValueError("No training or validation data provided.")
 
+    logger.info("Initializing trainer...")
     trainer = Trainer(config, tokenizer, wandb_run=wandb_run)
+
+    logger.info("Starting training for %d steps...", config.trainer.steps)
     trainer.train(training_data, validation_data)
 
 

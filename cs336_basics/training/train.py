@@ -230,11 +230,13 @@ class Trainer:
             bar.update(self._it)
             if self.should_checkpoint():
                 logger.info(f"Saving checkpoint at step {self._it}...")
+                out_dir = self._config.trainer.ckpt_dir / f"{self._it:09d}"
+                os.makedirs(out_dir, exist_ok=True)
                 training_utils.save_ckpt(
                     self._lm,
                     self._opt,
                     iteration=self._it,
-                    out=self._config.trainer.ckpt_dir / f"{self._it:09d}",
+                    out=out_dir / _CKPT_FILE_NAME,
                 )
                 logger.info("Checkpoint saved.")
 

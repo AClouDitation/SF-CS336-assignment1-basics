@@ -5,6 +5,7 @@ import numpy as np
 import random
 
 from typing import Iterable, BinaryIO, IO
+from jaxtyping import Int
 
 
 def lr_cosine_schedule(
@@ -39,18 +40,19 @@ def get_batch(
     batch_size: int,
     seq_len: int,
     device: torch.device | str,
-):
+) -> tuple[
+    Int[torch.Tensor, "batch_size seq_len"],
+    Int[torch.Tensor, "batch_size seq_len"],
+]:
     starting_indices = [
         random.randint(0, len(x) - seq_len - 1) for _ in range(batch_size)
     ]
     sequences = torch.LongTensor(
         [x[idx : idx + seq_len] for idx in starting_indices],
-        device=device,
-    )
+    ).to(device)
     targets = torch.LongTensor(
         [x[idx + 1 : idx + seq_len + 1] for idx in starting_indices],
-        device=device,
-    )
+    ).to(device)
     return sequences, targets
 
 

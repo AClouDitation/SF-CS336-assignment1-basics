@@ -35,7 +35,7 @@ def scaled_dot_product_attention(
 def cross_entropy(
     logits: Float[Tensor, "batch_size d_vocab"],
     targets: Float[Tensor, "batch_size"],
-) -> Float[Tensor, "batch_size"]:
+) -> Float[Tensor, ""]:
     logits = logits - logits.max(dim=-1, keepdim=True).values
     losses = -log_soft_max(logits).gather(dim=-1, index=targets.unsqueeze(-1))
-    return losses.mean(dim=0)
+    return losses.mean()

@@ -6,8 +6,15 @@ from typing import Callable
 class AdamW(torch.optim.Optimizer):
 
     def __init__(
-        self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.01
-    ): 
+        self,
+        params,
+        lr=1e-3,
+        betas=(0.9, 0.999),
+        eps=1e-8,
+        weight_decay=0.01,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ):
         if lr < 0:
             raise ValueError(f"Invalid learning rate: {lr}")
         defaults = {
@@ -17,6 +24,9 @@ class AdamW(torch.optim.Optimizer):
             "weight_decay": weight_decay,
         }
         super().__init__(params, defaults)
+
+        self._device = device
+        self._dtype = dtype
 
     def step(self, closure: Callable[[], float] | None = None):  # type: ignore
         loss = None if closure is None else closure()
@@ -32,11 +42,17 @@ class AdamW(torch.optim.Optimizer):
                     continue
                 state = self.state[p]
 
-                m = state.get("m", torch.zeros_like(p.data))
+                m = state.get(
+                    "m",
+                    torch.zeros_like(p.data, device=self._device, dtype=self._dtype),
+                )
                 m = b1 * m + (1 - b1) * p.grad.data
                 state["m"] = m
 
-                v = state.get("v", torch.zeros_like(p.data))
+                v = state.get(
+                    "v",
+                    torch.zeros_like(p.data, device=self._device, dtype=self._dtype),
+                )
                 v = b2 * v + (1 - b2) * p.grad.data**2
                 state["v"] = v
 

@@ -1,8 +1,8 @@
+import os
 import argparse
 import pathlib
 
 from typing import NamedTuple
-
 
 parser = argparse.ArgumentParser(description="Train a transformer language model.")
 
@@ -14,8 +14,8 @@ parser.add_argument("--merges_file", type=str, required=True)
 parser.add_argument("--special_tokens", type=list, default=["<|endoftext|>"])
 
 # Trainer configs
-parser.add_argument("--tmp_dir", type=str, default="~/learning/SF_CS_336/data/tmp")
-parser.add_argument("--ckpt_dir", type=str, default="~/learning/SF_CS_336/data/ckpts")
+parser.add_argument("--tmp_dir", type=str, default="local/data/tmp")
+parser.add_argument("--ckpt_dir", type=str, default="local/data/ckpts")
 parser.add_argument("--ckpt_interval", type=int, default=1000)
 parser.add_argument("--training_dataset_file", type=str, default=None)
 parser.add_argument("--validation_dataset_file", type=str, default=None)

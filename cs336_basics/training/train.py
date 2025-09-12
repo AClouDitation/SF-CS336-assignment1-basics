@@ -23,6 +23,8 @@ logging.basicConfig(stream=sys.stdout)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+torch.autograd.set_detect_anomaly(True)
+
 
 def get_tokenizer(config: training_config.TrainingConfig.TokenizerConfig):
     return bpe_tokenizer.Tokenizer.from_files(**config._asdict())
@@ -127,7 +129,7 @@ class Trainer:
         wandb_run = None,
     ):
         self._config = config
-        self._it = 1
+        self._it = 0
         self._wandb_run = wandb_run
 
         self._lm = modules.TransformerLM(
@@ -215,27 +217,33 @@ class Trainer:
         training_data: np.ndarray[tuple[int], np.dtype[np.uint32]],
         validation_data: np.ndarray[tuple[int], np.dtype[np.uint32]],
     ):
-        while self._it <= self._total_steps:
+        bar = progressbar.ProgressBar(min_value=self._it, max_value=self._total_steps)
+        bar.start()
+        while self._it < self._total_steps:
+            self._it += 1
             sequences, targets = self._get_batch(training_data)
             lr, training_losses = self._train_step(sequences=sequences, targets=targets)
             self._wandb_log(
                 {"train/lr": lr, "train/loss": training_losses, "step": self._it}
             )
 
+            bar.update(self._it)
             if self.should_checkpoint():
+                logger.info(f"Saving checkpoint at step {self._it}...")
                 training_utils.save_ckpt(
                     self._lm,
                     self._opt,
                     iteration=self._it,
                     out=self._config.trainer.ckpt_dir / f"{self._it:09d}",
                 )
+                logger.info("Checkpoint saved.")
+
                 validation_seq, validation_target = self._get_batch(validation_data)
                 losses = self._validate(validation_seq, validation_target)
                 self._wandb_log(
                     {"validation/loss": losses, "step": self._it}
                 )
 
-            self._it += 1
 
 
 def main():

@@ -287,7 +287,7 @@ class TransformerBlock(torch.nn.Module):
     def forward(
         self, x: Float[Tensor, "... sdq d_model"]
     ) -> Float[Tensor, "... seq d_model"]:
-        x += self.attn(self.ln1(x))
+        x = x + self.attn(self.ln1(x))
         return x + self.ffn(self.ln2(x))
 
     def forward_flops(self, tensor_shape: torch.Size) -> CostBreakdown:

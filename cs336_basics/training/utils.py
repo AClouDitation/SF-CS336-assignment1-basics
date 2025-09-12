@@ -47,12 +47,13 @@ def get_batch(
     starting_indices = [
         random.randint(0, len(x) - seq_len - 1) for _ in range(batch_size)
     ]
-    sequences = torch.LongTensor(
-        [x[idx : idx + seq_len] for idx in starting_indices],
-    ).to(device)
-    targets = torch.LongTensor(
-        [x[idx + 1 : idx + seq_len + 1] for idx in starting_indices],
-    ).to(device)
+    sequences = torch.LongTensor(np.concatenate(
+        [np.array(x[idx : idx + seq_len], dtype=np.int32) for idx in starting_indices]
+    )).reshape(batch_size, seq_len).to(device)
+    targets = torch.LongTensor(np.concatenate(
+        [np.array(x[idx + 1 : idx + seq_len + 1], dtype=np.int32) for idx in starting_indices]
+    )).reshape(batch_size, seq_len).to(device)
+
     return sequences, targets
 
 

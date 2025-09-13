@@ -1,4 +1,3 @@
-import os
 import argparse
 import pathlib
 
@@ -34,10 +33,9 @@ parser.add_argument("--num_layers", type=int, default=12)
 parser.add_argument("--d_model", type=int, default=768)
 parser.add_argument("--num_heads", type=int, default=12)
 parser.add_argument("--d_ff", type=int, default=3072)
-
+parser.add_argument("--rope_theta", type=float, default=0.1)
 
 # Hyperparameters
-parser.add_argument("--rope_theta", type=float, default=0.1)
 parser.add_argument("--max_learning_rate", type=float, default=1e-3)
 parser.add_argument("--min_learning_rate", type=float, default=1e-5)
 parser.add_argument("--warmup_iters", type=int, default=100)

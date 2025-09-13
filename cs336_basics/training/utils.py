@@ -75,7 +75,7 @@ def save_ckpt(
 def load_ckpt(
     src: str | os.PathLike | BinaryIO | IO[bytes],
     model: torch.nn.Module,
-    optimizer: torch.optim.Optimizer,
+    optimizer: torch.optim.Optimizer | None = None,
 ) -> int:
     obj = torch.load(src)
     assert (
@@ -86,5 +86,6 @@ def load_ckpt(
     ), "Iteration in checkpoint is not an integer."
 
     model.load_state_dict(obj["model"])
-    optimizer.load_state_dict(obj["optimizer"])
+    if optimizer is not None:
+        optimizer.load_state_dict(obj["optimizer"])
     return obj["iteration"]

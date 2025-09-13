@@ -23,7 +23,7 @@ logging.basicConfig(stream=sys.stdout)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-torch.autograd.set_detect_anomaly(True)
+# torch.autograd.set_detect_anomaly(True)
 
 
 def get_tokenizer(config: training_config.TrainingConfig.TokenizerConfig):

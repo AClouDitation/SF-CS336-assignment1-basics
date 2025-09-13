@@ -9,7 +9,9 @@ def silu(x: torch.Tensor) -> torch.Tensor:
     return x * torch.sigmoid(x)
 
 
-def soft_max(x: Float[Tensor, " ..."], dim: int = -1) -> Float[Tensor, " ..."]:
+def soft_max(
+    x: Float[Tensor, " ..."], dim: int = -1, temp: float = 0.0
+) -> Float[Tensor, " ..."]:
     x = x - x.max(dim=dim, keepdim=True).values
     x = x.exp()
     return x / x.sum(dim=dim, keepdim=True)

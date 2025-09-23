@@ -28,12 +28,12 @@ parser.add_argument("--batch_size", type=int, default=4)
 parser.add_argument("--device", type=str, default="cpu")
 
 # Model structure
-parser.add_argument("--context_length", type=int, default=1024)
-parser.add_argument("--num_layers", type=int, default=12)
-parser.add_argument("--d_model", type=int, default=768)
-parser.add_argument("--num_heads", type=int, default=12)
-parser.add_argument("--d_ff", type=int, default=3072)
-parser.add_argument("--rope_theta", type=float, default=0.1)
+parser.add_argument("--context_length", type=int, default=256)
+parser.add_argument("--num_layers", type=int, default=4)
+parser.add_argument("--d_model", type=int, default=512)
+parser.add_argument("--num_heads", type=int, default=16)
+parser.add_argument("--d_ff", type=int, default=1344)
+parser.add_argument("--rope_theta", type=float, default=10000)
 
 # Hyperparameters
 parser.add_argument("--max_learning_rate", type=float, default=1e-3)
@@ -43,6 +43,12 @@ parser.add_argument("--max_grad_l2_norm", type=float, default=1.0)
 parser.add_argument("--adamw_betas", type=float, nargs=2, default=(0.9, 0.999))
 parser.add_argument("--adamw_eps", type=float, default=1e-8)
 parser.add_argument("--adamw_weight_decay", type=float, default=0.01)
+parser.add_argument(
+    "--total_tokens_processed",
+    type=int,
+    default=-1,
+    help="Total number of tokens to process for training. Overrides --steps if set.",
+)
 
 
 class TrainingConfig(NamedTuple):
@@ -126,6 +132,9 @@ def get_config() -> TrainingConfig:
             "Either --training_dataset_file and --validation_dataset_file or --huggingface_dataset must be provided."
         )
 
+    steps = args.steps
+    if args.total_tokens_processed > 0:
+        steps = args.total_tokens_processed // args.batch_size // args.context_length
     return TrainingConfig(
         use_wandb=args.wandb,
         tokenizer=TrainingConfig.TokenizerConfig(
@@ -143,7 +152,7 @@ def get_config() -> TrainingConfig:
             training_split=args.training_split,
             validation_split=args.validation_split,
             from_ckpt=args.from_ckpt,
-            steps=args.steps,
+            steps=steps,
             use_memmap=args.use_memmap,
             batch_size=args.batch_size,
             device=args.device,

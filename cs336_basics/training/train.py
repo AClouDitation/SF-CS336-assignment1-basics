@@ -148,7 +148,7 @@ class Trainer:
             logger.info("Model loaded.")
             self._it += ckpt_step
 
-        self._total_steps = self._it + config.trainer.steps
+        self._total_steps = config.trainer.steps
 
     def _wandb_log(self, info: dict[str, Any]):
         if self._wandb_run is not None:
@@ -222,7 +222,7 @@ class Trainer:
         while self._it < self._total_steps:
             self._it += 1
             sequences, targets = self._get_batch(training_data)
-            lr, training_losses = self._train_step(sequences=sequences, targets=targets)
+            training_losses, lr = self._train_step(sequences=sequences, targets=targets)
             self._wandb_log(
                 {"train/lr": lr, "train/loss": training_losses, "step": self._it}
             )
@@ -247,12 +247,18 @@ class Trainer:
                 )
 
 
-
 def main():
     config = training_config.get_config()
-    wandb_run = wandb.init(
-        entity="actoy", project="toymodel", config=config._asdict()
-    ) if config.use_wandb else None
+    wandb_run = (
+        wandb.init(
+            name=config.run_name,
+            entity="actoy",
+            project="toymodel",
+            config=config._asdict(),
+        )
+        if config.use_wandb
+        else None
+    )
 
     logger.info("Loading tokenizer with config: %s", config.tokenizer)
     tokenizer = get_tokenizer(config.tokenizer)

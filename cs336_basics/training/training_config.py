@@ -6,6 +6,7 @@ from typing import NamedTuple
 parser = argparse.ArgumentParser(description="Train a transformer language model.")
 
 parser.add_argument("--wandb", action="store_true", help="Use Weights & Biases for logging.")
+parser.add_argument("--run_name", type=str, default=None, help="Name of the wandb run.")
 
 # Tokenizer configs
 parser.add_argument("--vocab_file", type=str, required=True)
@@ -92,6 +93,7 @@ class TrainingConfig(NamedTuple):
         max_grad_l2_norm: float
 
     use_wandb: bool
+    run_name: str | None
     tokenizer: TokenizerConfig
     trainer: TrainerConfig
     model: ModelConfig
@@ -137,6 +139,7 @@ def get_config() -> TrainingConfig:
         steps = args.total_tokens_processed // args.batch_size // args.context_length
     return TrainingConfig(
         use_wandb=args.wandb,
+        run_name=args.run_name,
         tokenizer=TrainingConfig.TokenizerConfig(
             vocab_file=vocab_file,
             merges_file=merges_file,

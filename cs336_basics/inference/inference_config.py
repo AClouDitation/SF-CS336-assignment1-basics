@@ -13,12 +13,12 @@ parser.add_argument("--special_tokens", type=list, default=["<|endoftext|>"])
 
 # Model
 parser.add_argument("--ckpt_path", type=str, required=True)
-parser.add_argument("--context_length", type=int, default=1024)
-parser.add_argument("--num_layers", type=int, default=12)
-parser.add_argument("--d_model", type=int, default=768)
-parser.add_argument("--num_heads", type=int, default=12)
-parser.add_argument("--d_ff", type=int, default=3072)
-parser.add_argument("--rope_theta", type=float, default=0.1)
+parser.add_argument("--context_length", type=int, default=256)
+parser.add_argument("--num_layers", type=int, default=4)
+parser.add_argument("--d_model", type=int, default=512)
+parser.add_argument("--num_heads", type=int, default=16)
+parser.add_argument("--d_ff", type=int, default=1344)
+parser.add_argument("--rope_theta", type=float, default=10000)
 
 # Decoding
 parser.add_argument("--temperature", type=float, default=0.0)
